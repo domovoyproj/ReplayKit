@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "2.0.0"
 #endif
 [Setup]
 AppId={{716F4DA6-7EA4-45C0-AE9A-6434053EA0B4}
@@ -12,7 +12,7 @@ DefaultDirName={localappdata}\Programs\ReplayKit
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-MinVersion=10.0
+MinVersion=10.0.19041
 DefaultGroupName=ReplayKit
 DisableProgramGroupPage=yes
 OutputDir=..\artifacts

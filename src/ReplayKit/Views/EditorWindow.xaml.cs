@@ -9,10 +9,12 @@ public partial class EditorWindow : Window
     private BitmapSource _image;
     private readonly List<BitmapSource> _undo = new();
     private readonly List<BitmapSource> _redo = new();
+    private readonly List<int> _undoNumbers = new(), _redoNumbers = new();
     private string _tool = "Pen";
     private Point? _start;
     private readonly List<Point> _points = new();
     private Point _end;
+    private int _number = 1;
     private TextBox? _textBox;
     public EditorWindow(BitmapSource image) { _image = image; InitializeComponent(); UpdateImage(); MarkTool(); }
     private void OnLoaded(object sender, RoutedEventArgs e) { WindowPlacement.CenterAtCursor(this); WindowPlacement.ExcludeFromCapture(this); }
@@ -38,6 +40,12 @@ public partial class EditorWindow : Window
         if (_textBox != null) { CommitText(); return; }
         var point = Clamp(e.GetPosition(Surface));
         if (_tool == "Text") { BeginText(point); e.Handled = true; return; }
+        if (_tool == "Number")
+        {
+            var radius = Math.Max(18, _image.PixelWidth / 60d); var ink = Ink;
+            var text = new FormattedText(_number.ToString(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), radius, Brushes.White, 1);
+            Push(Render(dc => { dc.DrawEllipse(ink, null, point, radius, radius); dc.DrawText(text, new Point(point.X - text.Width / 2, point.Y - text.Height / 2)); })); _number++; e.Handled = true; return;
+        }
         _start = _end = point; _points.Clear(); _points.Add(point); Surface.CaptureMouse(); e.Handled = true;
     }
     private void OnPointerMove(object sender, MouseEventArgs e)
@@ -122,9 +130,9 @@ public partial class EditorWindow : Window
     }
     private void Push(BitmapSource image)
     {
-        _undo.Add(_image); _redo.Clear(); _image = image;
+        _undo.Add(_image); _undoNumbers.Add(_number); _redo.Clear(); _redoNumbers.Clear(); _image = image;
         // Bound raster undo memory independently of the replay buffer.
-        while (_undo.Count > 1 && _undo.Sum(x => (long)x.PixelWidth * x.PixelHeight * 4) > 160L * 1024 * 1024) _undo.RemoveAt(0);
+        while (_undo.Count > 1 && _undo.Sum(x => (long)x.PixelWidth * x.PixelHeight * 4) > 160L * 1024 * 1024) { _undo.RemoveAt(0); _undoNumbers.RemoveAt(0); }
         UpdateImage();
     }
     private void BeginText(Point point)
@@ -144,8 +152,8 @@ public partial class EditorWindow : Window
         Push(Render(dc => dc.DrawText(formatted, point)));
     }
     private void CancelText() { if (_textBox != null) Surface.Children.Remove(_textBox); _textBox = null; }
-    private void Undo() { CommitText(); if (_undo.Count == 0) return; _redo.Add(_image); _image = _undo[^1]; _undo.RemoveAt(_undo.Count - 1); UpdateImage(); }
-    private void Redo() { CommitText(); if (_redo.Count == 0) return; _undo.Add(_image); _image = _redo[^1]; _redo.RemoveAt(_redo.Count - 1); UpdateImage(); }
+    private void Undo() { CommitText(); if (_undo.Count == 0) return; _redo.Add(_image); _redoNumbers.Add(_number); _number = _undoNumbers[^1]; _undoNumbers.RemoveAt(_undoNumbers.Count - 1); _image = _undo[^1]; _undo.RemoveAt(_undo.Count - 1); UpdateImage(); }
+    private void Redo() { CommitText(); if (_redo.Count == 0) return; _undo.Add(_image); _undoNumbers.Add(_number); _number = _redoNumbers[^1]; _redoNumbers.RemoveAt(_redoNumbers.Count - 1); _image = _redo[^1]; _redo.RemoveAt(_redo.Count - 1); UpdateImage(); }
     private void OnUndo(object sender, RoutedEventArgs e) => Undo();
     private void OnRedo(object sender, RoutedEventArgs e) => Redo();
     private void OnLostCapture(object sender, MouseEventArgs e) { _start = null; Overlay.Children.Clear(); }

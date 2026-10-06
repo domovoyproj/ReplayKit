@@ -24,7 +24,7 @@ internal static class Program
         ThemeService.Apply("Dark");
         Dispatcher.CurrentDispatcher.BeginInvoke(async () =>
         {
-            try { await RunAsync(args); Console.WriteLine($"{_passed} Windows integration checks passed."); }
+            try { if (args.Contains("--soak")) await SoakChecks.Run(); else { await RunAsync(args); Console.WriteLine($"{_passed} Windows integration checks passed."); } }
             catch (Exception e) { Console.Error.WriteLine(e); _exitCode = 1; }
             finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); }
         });
@@ -78,11 +78,12 @@ internal static class Program
         using (var second = new HotkeyService())
         {
             var a = new HotkeySpec(7, 0x86); var b = new HotkeySpec(7, 0x87);
-            Check("Global hotkeys register", first.Apply(a, b));
-            Check("Global conflict is detected", !second.Apply(a, b));
-            Check("Same settings can be reapplied", first.Apply(a, b));
-            Check("Duplicate action hotkeys are rejected", !first.Apply(a, a));
-            Check("Two registered action hotkeys can be exchanged", first.Apply(b, a));
+            var c = new HotkeySpec(7, 0x84); var d = new HotkeySpec(7, 0x85);
+            Check("Global hotkeys register", first.Apply(a, b, c, d));
+            Check("Global conflict is detected", !second.Apply(a, b, c, d));
+            Check("Same settings can be reapplied", first.Apply(a, b, c, d));
+            Check("Duplicate action hotkeys are rejected", !first.Apply(a, a, c, d));
+            Check("Two registered action hotkeys can be exchanged", first.Apply(b, a, d, c));
         }
         using var capture = new CaptureService("synthetic"); capture.SetLocked(true);
         var lockedVideoRejected = false;
@@ -193,6 +194,7 @@ internal static class Program
             await recording.StartVideoAsync(Path.GetFullPath("artifacts/qa/worker-exit.mp4")).WaitAsync(TimeSpan.FromSeconds(10));
         }
         Check("Graceful exit leaves playable MP4", (await Task.Run(() => VideoChecks.Decode(Path.GetFullPath("artifacts/qa/worker-exit.mp4")))).Frames > 0);
+        await UpgradeChecks.Run(image, Check, RenderUi);
         if (args.Contains("--capture"))
         {
             // A valid JPEG header and dimensions can still describe a completely black image.
@@ -252,6 +254,13 @@ internal static class Program
                 await Task.Delay(200); background.SetLocked(true);
                 for (var t = 0; t < 50 && background.VideoPending; t++) await Task.Delay(100);
                 Check("Session lock finalizes video and clears replay", !background.VideoPending && background.Buffer.Snapshot(DateTimeOffset.Now).Length == 0);
+            }
+            using (var cover = new System.Windows.Forms.Form { FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
+                StartPosition = System.Windows.Forms.FormStartPosition.Manual, Bounds = screen.Bounds, TopMost = true,
+                ShowInTaskbar = false, BackColor = System.Drawing.Color.Blue, Text = "ReplayKit occlusion test" })
+            {
+                cover.Show(); cover.Activate(); await Task.Delay(200);
+                await WindowCaptureChecks.Run(witness.Handle, Check); cover.Close();
             }
             witness.Close();
         }
