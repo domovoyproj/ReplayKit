@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/replaykit.ico</ApplicationIcon>
+    <AssemblyName>ReplayKit</AssemblyName><RootNamespace>ReplayKit</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ReplayKit.Core/ReplayKit.Core.csproj" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <Resource Include="Assets/replaykit.ico" />
+  </ItemGroup>
+</Project>

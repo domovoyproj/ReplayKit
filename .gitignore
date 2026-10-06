@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+.tools/
+artifacts/
+graphify-out/
+*.user
+*.log
+*.pfx

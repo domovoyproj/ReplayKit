@@ -1,0 +1,15 @@
+<Window x:Class="ReplayKit.Views.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="ReplayKit — настройки" Width="570" Height="540" ResizeMode="NoResize" Loaded="OnLoaded" PreviewKeyDown="OnKey">
+ <Border Margin="12" CornerRadius="24" Background="{DynamicResource WindowBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"><Border.Effect><DropShadowEffect BlurRadius="22" Opacity="0.2" ShadowDepth="3"/></Border.Effect>
+  <Grid Margin="28"><Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="48"/></Grid.RowDefinitions>
+   <Grid MouseLeftButtonDown="OnDrag"><TextBlock Text="Настройки" FontSize="22" FontWeight="SemiBold"/><Button Content="×" Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Top" Click="OnClose"/></Grid>
+   <StackPanel Grid.Row="1" Margin="0,20,0,0">
+    <TextBlock Text="Оформление" Margin="0,0,0,8"/><ComboBox x:Name="Theme" SelectedIndex="0"><ComboBoxItem Content="Системное" Tag="System"/><ComboBoxItem Content="Светлое" Tag="Light"/><ComboBoxItem Content="Тёмное" Tag="Dark"/></ComboBox>
+    <CheckBox x:Name="AutoStart" Content="Запускать вместе с Windows" Margin="0,20,0,20" Foreground="{DynamicResource TextBrush}"/>
+    <TextBlock Text="Открыть историю" Margin="0,0,0,8"/><TextBox x:Name="HistoryKey" IsReadOnly="True" PreviewKeyDown="OnHotkey" ToolTip="Нажмите сочетание: Ctrl, Alt, Shift или Win + буква, цифра или F1–F24"/>
+    <TextBlock Text="Запись / пауза" Margin="0,18,0,8"/><TextBox x:Name="RecordingKey" IsReadOnly="True" PreviewKeyDown="OnHotkey"/>
+    <TextBlock x:Name="Status" Text="Нажмите новое сочетание в поле" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,14,0,0" FontSize="12"/>
+   </StackPanel>
+   <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Отмена" Click="OnClose"/><Button Content="Сохранить" Style="{StaticResource PrimaryButton}" Click="OnSave"/></StackPanel>
+  </Grid>
+ </Border>
+</Window>
