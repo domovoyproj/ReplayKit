@@ -13,5 +13,7 @@
     <ProjectReference Include="../ReplayKit.Core/ReplayKit.Core.csproj" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
     <Resource Include="Assets/replaykit.ico" />
+    <Content Include="../../LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -83,7 +83,9 @@ internal static class Program
         }
         using var capture = new CaptureService("synthetic"); capture.SetLocked(true);
         now = DateTimeOffset.Now;
-        for (var i = -59; i <= 0; i++) capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(i) });
+        // Leave expiry margin for the first WPF window's JIT/layout on slow CI machines.
+        // Exact one-second/60-second retention is covered independently by core tests.
+        for (var i = -59; i <= 0; i++) capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(i * 0.5) });
         var history = new HistoryWindow(capture, new Settings(), _ => { }, () => { }); history.Show();
         for (var i = 0; i < 300 && Field<BitmapSource[]>(history, "_previews").Length == 0; i++) await Task.Delay(50);
         Check("History preloads all 60 frozen preview frames", Field<BitmapSource[]>(history, "_previews").Length == 60);

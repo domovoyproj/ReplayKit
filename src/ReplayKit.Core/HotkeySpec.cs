@@ -10,5 +10,5 @@ public sealed record HotkeySpec(uint Modifiers, uint VirtualKey)
         VirtualKey is >= 0x70 and <= 0x87 ? $"F{VirtualKey - 0x6F}" : ((char)VirtualKey).ToString()
     }.Where(x => x != null));
     public bool IsValid => (Modifiers & 15) != 0 && (Modifiers & ~15u) == 0 &&
-        (VirtualKey is >= 0x30 and <= 0x5A or >= 0x70 and <= 0x87);
+        (VirtualKey is >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A or >= 0x70 and <= 0x87);
 }
