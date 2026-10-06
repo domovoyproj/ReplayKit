@@ -2,6 +2,15 @@ namespace ReplayKit.Services;
 
 public static class Images
 {
+    public static BitmapSource Crop(BitmapSource image, Int32Rect region)
+    {
+        // Materialize pixels so cropped images cannot retain a chain of full-size source bitmaps.
+        var stride = (region.Width * image.Format.BitsPerPixel + 7) / 8;
+        var pixels = new byte[stride * region.Height];
+        image.CopyPixels(region, pixels, stride, 0);
+        var crop = BitmapSource.Create(region.Width, region.Height, 96, 96, image.Format, image.Palette, pixels, stride);
+        crop.Freeze(); return crop;
+    }
     public static BitmapSource Decode(CaptureFrame frame, int maxWidth = 0)
     {
         using var stream = new MemoryStream(frame.EncodedImage, false);

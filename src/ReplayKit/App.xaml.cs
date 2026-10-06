@@ -10,7 +10,9 @@ public partial class App : Application
 {
     private Mutex? _mutex;
     private EventWaitHandle? _activation;
+    private EventWaitHandle? _quit;
     private RegisteredWaitHandle? _activationWait;
+    private RegisteredWaitHandle? _quitWait;
     private System.Windows.Forms.NotifyIcon? _tray;
     private System.Drawing.Icon? _recordingIcon, _pausedIcon;
     private HotkeyService? _hotkeys;
@@ -25,8 +27,20 @@ public partial class App : Application
         base.OnStartup(e);
         _mutex = new Mutex(true, @"Local\ReplayKit.SingleInstance", out var first);
         _activation = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\ReplayKit.Activate");
+        _quit = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\ReplayKit.Quit");
+        if (e.Args.Contains("--quit"))
+        {
+            if (!first)
+            {
+                _quit.Set();
+                try { if (_mutex.WaitOne(5000)) _mutex.ReleaseMutex(); }
+                catch (AbandonedMutexException) { _mutex.ReleaseMutex(); }
+            }
+            Shutdown(); return;
+        }
         if (!first) { _activation.Set(); Shutdown(); return; }
         _activationWait = ThreadPool.RegisterWaitForSingleObject(_activation, (_, _) => Dispatcher.BeginInvoke(OpenHistory), null, Timeout.Infinite, false);
+        _quitWait = ThreadPool.RegisterWaitForSingleObject(_quit, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()), null, Timeout.Infinite, false);
         DispatcherUnhandledException += OnUnhandled;
         Settings = SettingsStore.Load(); ThemeService.Apply(Settings.Theme);
         _capture = new CaptureService(ResolveMonitor());
@@ -123,8 +137,8 @@ public partial class App : Application
         _exiting = true;
         SystemEvents.SessionSwitch -= OnSessionSwitch; SystemEvents.DisplaySettingsChanged -= OnDisplaysChanged;
         SystemEvents.UserPreferenceChanged -= OnPreferencesChanged; SystemEvents.PowerModeChanged -= OnPowerChanged;
-        _activationWait?.Unregister(null); _capture?.Dispose(); _hotkeys?.Dispose();
-        _tray?.Dispose(); _recordingIcon?.Dispose(); _pausedIcon?.Dispose(); _activation?.Dispose(); _mutex?.Dispose();
+        _activationWait?.Unregister(null); _quitWait?.Unregister(null); _capture?.Dispose(); _hotkeys?.Dispose();
+        _tray?.Dispose(); _recordingIcon?.Dispose(); _pausedIcon?.Dispose(); _activation?.Dispose(); _quit?.Dispose(); _mutex?.Dispose();
         base.OnExit(e);
     }
 }

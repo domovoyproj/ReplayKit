@@ -83,8 +83,7 @@ public partial class EditorWindow : Window
         var rect = Selection;
         if (_tool == "Crop" && rect.Width >= 3 && rect.Height >= 3)
         {
-            var crop = new CroppedBitmap(_image, new Int32Rect((int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height));
-            crop.Freeze(); Push(crop);
+            Push(Images.Crop(_image, new Int32Rect((int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height)));
         }
         else if (_tool != "Crop" && (_tool == "Pen" || (_end - _start.Value).Length > 2))
         {

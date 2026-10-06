@@ -1,7 +1,7 @@
 # Third-party notices
 
 ReplayKit includes Vortice.Windows (Copyright © Amer Koleci and contributors),
-SharpGen.Runtime (Copyright © Alexandre Mutel and contributors), and Microsoft .NET / WPF
+SharpGen.Runtime (Copyright © 2010–2017 Alexandre Mutel, 2017 Jeremy Koritzinsky), and Microsoft .NET / WPF
 (Copyright © .NET Foundation and contributors). These components are licensed under MIT.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,7 +25,7 @@ SOFTWARE.
 Upstream licenses and additional .NET notices:
 
 - https://github.com/amerkoleci/Vortice.Windows/blob/main/LICENSE
-- https://github.com/SharpGenTools/SharpGenTools/blob/main/LICENSE
+- https://github.com/SharpGenTools/SharpGenTools/blob/main/LICENSE.txt
 - https://github.com/dotnet/runtime/blob/v8.0.0/LICENSE.TXT
 - https://github.com/dotnet/runtime/blob/v8.0.0/THIRD-PARTY-NOTICES.TXT
 - https://github.com/dotnet/wpf/blob/main/LICENSE.TXT

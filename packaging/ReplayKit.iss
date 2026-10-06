@@ -44,3 +44,14 @@ Filename: "{app}\ReplayKit.exe"; Parameters: "--installed"; Description: "Зап
 Type: files; Name: "{localappdata}\ReplayKit\settings.json"
 Type: files; Name: "{localappdata}\ReplayKit\settings.json.tmp"
 Type: dirifempty; Name: "{localappdata}\ReplayKit"
+[UninstallRun]
+Filename: "{app}\ReplayKit.exe"; Parameters: "--quit"; Flags: runhidden waituntilterminated skipifdoesntexist
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{app}\ReplayKit.exe')) then
+    Exec(ExpandConstant('{app}\ReplayKit.exe'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;

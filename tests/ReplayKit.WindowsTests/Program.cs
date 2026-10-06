@@ -109,7 +109,7 @@ internal static class Program
         Check("Redaction is flattened into opaque pixels", samplePixel[0] == 0 && samplePixel[1] == 0 && samplePixel[2] == 0 && samplePixel[3] == 255);
         Call(editor, "Undo"); Check("Undo restores original image", ReferenceEquals(Field<BitmapSource>(editor, "_image"), decoded));
         Call(editor, "Redo"); Check("Redo restores edit", ReferenceEquals(Field<BitmapSource>(editor, "_image"), withMark));
-        var crop = new CroppedBitmap(withMark, new Int32Rect(100, 100, 400, 300)); crop.Freeze(); Call(editor, "Push", crop);
+        var crop = Images.Crop(withMark, new Int32Rect(100, 100, 400, 300)); Call(editor, "Push", crop);
         Check("Crop uses original pixel coordinates", Field<BitmapSource>(editor, "_image").PixelWidth == 400);
         Call(editor, "Undo"); RenderUi(editor, "editor-dark"); editor.Close();
         if (args.Contains("--capture"))
