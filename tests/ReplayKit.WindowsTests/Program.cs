@@ -24,7 +24,7 @@ internal static class Program
         ThemeService.Apply("Dark");
         Dispatcher.CurrentDispatcher.BeginInvoke(async () =>
         {
-            try { await RunAsync(args); Console.WriteLine($"{_passed} Windows integration checks passed."); }
+            try { if (args.Contains("--soak")) await SoakChecks.Run(); else await RunAsync(args); Console.WriteLine($"{_passed} Windows integration checks passed."); }
             catch (Exception e) { Console.Error.WriteLine(e); _exitCode = 1; }
             finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); }
         });
@@ -193,6 +193,7 @@ internal static class Program
             await recording.StartVideoAsync(Path.GetFullPath("artifacts/qa/worker-exit.mp4")).WaitAsync(TimeSpan.FromSeconds(10));
         }
         Check("Graceful exit leaves playable MP4", (await Task.Run(() => VideoChecks.Decode(Path.GetFullPath("artifacts/qa/worker-exit.mp4")))).Frames > 0);
+        await UpgradeChecks.Run(image, Check, RenderUi);
         if (args.Contains("--capture"))
         {
             // A valid JPEG header and dimensions can still describe a completely black image.

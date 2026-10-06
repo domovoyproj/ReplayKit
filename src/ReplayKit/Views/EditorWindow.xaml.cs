@@ -13,6 +13,7 @@ public partial class EditorWindow : Window
     private Point? _start;
     private readonly List<Point> _points = new();
     private Point _end;
+    private int _number = 1;
     private TextBox? _textBox;
     public EditorWindow(BitmapSource image) { _image = image; InitializeComponent(); UpdateImage(); MarkTool(); }
     private void OnLoaded(object sender, RoutedEventArgs e) { WindowPlacement.CenterAtCursor(this); WindowPlacement.ExcludeFromCapture(this); }
@@ -38,6 +39,12 @@ public partial class EditorWindow : Window
         if (_textBox != null) { CommitText(); return; }
         var point = Clamp(e.GetPosition(Surface));
         if (_tool == "Text") { BeginText(point); e.Handled = true; return; }
+        if (_tool == "Number")
+        {
+            var radius = Math.Max(18, _image.PixelWidth / 60d); var ink = Ink;
+            var text = new FormattedText((_number++).ToString(), CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), radius, Brushes.White, 1);
+            Push(Render(dc => { dc.DrawEllipse(ink, null, point, radius, radius); dc.DrawText(text, new Point(point.X - text.Width / 2, point.Y - text.Height / 2)); })); e.Handled = true; return;
+        }
         _start = _end = point; _points.Clear(); _points.Add(point); Surface.CaptureMouse(); e.Handled = true;
     }
     private void OnPointerMove(object sender, MouseEventArgs e)

@@ -10,6 +10,13 @@ public sealed class Settings
     public bool AutoStart { get; set; } = true;
     public HotkeySpec HistoryHotkey { get; set; } = HotkeySpec.History;
     public HotkeySpec RecordingHotkey { get; set; } = HotkeySpec.Recording;
+    public HotkeySpec VideoHotkey { get; set; } = new(6, 0x56);
+    public HotkeySpec ReplayHotkey { get; set; } = new(6, 0x42);
+    public VideoOptions Video { get; set; } = new();
+    public bool ReplayEnabled { get; set; }
+    public int ReplaySeconds { get; set; } = 30;
+    public int ReplayMemoryMb { get; set; } = 256;
+    public bool ReplayEconomy { get; set; } = true;
 }
 
 public static class SettingsStore
@@ -23,6 +30,11 @@ public static class SettingsStore
             if (settings.HistoryHotkey?.IsValid != true) settings.HistoryHotkey = HotkeySpec.History;
             if (settings.RecordingHotkey?.IsValid != true || settings.RecordingHotkey == settings.HistoryHotkey) settings.RecordingHotkey = HotkeySpec.Recording;
             if (settings.Theme is not ("Light" or "Dark" or "System")) settings.Theme = "System";
+            settings.Video = (settings.Video ?? new()).Normalize();
+            if (settings.VideoHotkey?.IsValid != true) settings.VideoHotkey = new(6, 0x56);
+            if (settings.ReplayHotkey?.IsValid != true) settings.ReplayHotkey = new(6, 0x42);
+            settings.ReplaySeconds = settings.ReplaySeconds is 15 or 30 or 60 ? settings.ReplaySeconds : 30;
+            settings.ReplayMemoryMb = Math.Clamp(settings.ReplayMemoryMb, 64, 1024);
             return settings;
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)

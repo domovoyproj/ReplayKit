@@ -4,9 +4,10 @@ namespace ReplayKit.Services;
 
 public sealed class CaptureService : IDisposable
 {
-    private sealed class VideoRequest(string path)
+    private sealed class VideoRequest(string path, VideoOptions options)
     {
         public string Path { get; } = path;
+        public VideoOptions Options { get; } = options;
         public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<string?> Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Stopwatch Waiting { get; } = Stopwatch.StartNew();
@@ -21,6 +22,22 @@ public sealed class CaptureService : IDisposable
     private bool _recording = true, _locked, _stopVideo, _videoStarted;
     private int _generation;
     private long _videoTicks;
+    private bool _videoPaused;
+    public VideoOptions VideoOptions { get; set; } = new();
+    public ReplayBuffer Replay { get; } = new();
+    private Int32Rect? _region;
+    private Windows.Graphics.Capture.GraphicsCaptureItem? _item;
+    public bool IsMonitorSource { get { lock (_gate) return _item == null && _region == null; } }
+    public Int32Rect? Region { get { lock (_gate) return _region; } }
+    public void SelectSource(Windows.Graphics.Capture.GraphicsCaptureItem? item, Int32Rect? region = null)
+    {
+        lock (_gate) { _item = item; _region = region; _generation++; Buffer.Clear(); Replay.Clear(); _stopVideo = true; }
+        _wake.Set(); StateChanged?.Invoke();
+    }
+    public bool VideoPaused { get { lock (_gate) return _videoPaused; } }
+    public bool Locked { get { lock (_gate) return _locked; } }
+    public string Status => Locked ? "Сеанс Windows заблокирован" : Error ?? (Recording ? "Ожидание кадра экрана" : "Буфер на паузе");
+    public void ToggleVideoPause() { lock (_gate) { if (_videoStarted) _videoPaused = !_videoPaused; } _wake.Set(); StateChanged?.Invoke(); }
     private VideoRequest? _video;
     public event Action? StateChanged;
     public event Action<string>? VideoSaved;
@@ -37,7 +54,7 @@ public sealed class CaptureService : IDisposable
         _monitor = monitor;
         _captureFrame = captureFrame;
         _locked = SessionState.IsLocked;
-        // DXGI and Media Foundation share one owner thread and one desktop duplication.
+        // Capture owns DXGI/WGC; history, replay compression and MP4 each have bounded worker queues.
         _worker = Task.Factory.StartNew(Run, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
     public Task StartVideoAsync(string path)
@@ -46,7 +63,7 @@ public sealed class CaptureService : IDisposable
         {
             if (_locked) throw new InvalidOperationException("Сеанс Windows заблокирован.");
             if (_video != null) throw new InvalidOperationException("Видеозапись уже запущена.");
-            _video = new VideoRequest(path); _stopVideo = false; VideoError = null;
+            _video = new VideoRequest(path, VideoOptions.Normalize()); _stopVideo = false; _videoPaused = false; VideoError = null;
             Interlocked.Exchange(ref _videoTicks, 0);
             _wake.Set(); StateChanged?.Invoke(); return _video.Started.Task;
         }
@@ -61,7 +78,7 @@ public sealed class CaptureService : IDisposable
     }
     public void SelectMonitor(string monitor)
     {
-        lock (_gate) { _monitor = monitor; _generation++; Buffer.Clear(); Error = null; _stopVideo = true; }
+        lock (_gate) { _monitor = monitor; _item = null; _region = null; _generation++; Buffer.Clear(); Replay.Clear(); Error = null; _stopVideo = true; }
         _wake.Set(); StateChanged?.Invoke();
     }
     public void Toggle()
@@ -71,24 +88,27 @@ public sealed class CaptureService : IDisposable
     }
     public void SetLocked(bool locked)
     {
-        lock (_gate) { _locked = locked; _generation++; if (locked) { Buffer.Clear(); _stopVideo = true; } }
+        lock (_gate) { _locked = locked; _generation++; if (locked) { Buffer.Clear(); Replay.Clear(); _stopVideo = true; } }
         _wake.Set(); StateChanged?.Invoke();
     }
     private void Run()
     {
         using var capture = new DxgiCapture();
-        Mp4Writer? writer = null; VideoRequest? current = null;
-        BitmapSource? encodedBitmap = null; CaptureFrame? encoded = null;
+        using var historyEncoder = new HistoryEncoder((frame, generation) => { lock (_gate) { if (_generation == generation && !_locked && _recording) Buffer.Add(frame); } },
+            e => { lock (_gate) Error = $"Не удалось подготовить кадр ({e.HResult:X8})."; });
+        WindowCapture? windowCapture = null; Windows.Graphics.Capture.GraphicsCaptureItem? activeItem = null;
+        VideoSession? writer = null; VideoRequest? current = null;
+
         var clock = Stopwatch.StartNew(); var videoClock = new Stopwatch(); long nextHistory = 0, nextNotify = 0;
         void FinishVideo(Exception? error = null)
         {
             if (current == null) return;
             string? saved = null;
-            try { if (writer != null && writer.FrameCount > 0) saved = writer.Complete(); }
+            try { if (writer != null) { writer.Stop(); saved = writer.Finished.GetAwaiter().GetResult(); if (writer.Error != null) error ??= new IOException(writer.Error); } }
             catch (Exception e) { error ??= e; }
-            finally { try { writer?.Dispose(); } catch (Exception e) { error ??= e; } writer = null; }
+            finally { writer = null; }
             var completed = current; current = null;
-            lock (_gate) { if (_video == completed) _video = null; _videoStarted = false; _stopVideo = false; VideoError = error?.Message; }
+            lock (_gate) { if (_video == completed) _video = null; _videoStarted = false; _videoPaused = false; _stopVideo = false; VideoError = error?.Message; }
             if (!completed.Started.Task.IsCompleted)
             {
                 if (error != null) completed.Started.TrySetException(error); else completed.Started.TrySetCanceled();
@@ -102,40 +122,43 @@ public sealed class CaptureService : IDisposable
             while (!_stop.IsCancellationRequested)
             {
                 var loopStart = clock.ElapsedMilliseconds;
-                string monitor; int generation; bool historyActive, locked, stopVideo; VideoRequest? requested;
-                lock (_gate) { monitor = _monitor; generation = _generation; locked = _locked; historyActive = _recording && !locked; requested = _video; stopVideo = _stopVideo; }
+                string monitor; int generation; Windows.Graphics.Capture.GraphicsCaptureItem? item; Int32Rect? region; bool historyActive, locked, stopVideo; VideoRequest? requested;
+                lock (_gate) { monitor = _monitor; item = _item; region = _region; generation = _generation; locked = _locked; historyActive = _recording && !locked; requested = _video; stopVideo = _stopVideo; }
                 current ??= requested;
                 if (current != null && (stopVideo || locked)) FinishVideo();
                 var videoActive = current != null && !locked;
-                if (!historyActive && !videoActive)
+                if (writer?.Finished.IsCompleted == true) { FinishVideo(); videoActive = false; }
+                if (!historyActive && !videoActive && (!Replay.Enabled || locked))
                 {
-                    capture.Dispose(); encodedBitmap = null; encoded = null;
+                    capture.Dispose(); windowCapture?.Dispose(); windowCapture = null; activeItem = null;
                     _wake.WaitOne(1000); continue;
                 }
                 try
                 {
-                    var timeout = videoActive ? 15u : 100u;
-                    var bitmap = _captureFrame != null ? _captureFrame(monitor, timeout) : capture.CaptureBitmap(monitor, timeout);
+                    var timeout = videoActive || Replay.Enabled ? 8u : 100u;
+                    if (activeItem != item) { windowCapture?.Dispose(); windowCapture = null; activeItem = item; capture.Dispose(); }
+                    if (item != null) windowCapture ??= new WindowCapture(item);
+                    var bitmap = _captureFrame != null ? _captureFrame(monitor, timeout) : item != null ? windowCapture!.Capture() : capture.CaptureBitmap(monitor, timeout);
                     lock (_gate) { if (_generation != generation) continue; }
                     if (bitmap != null)
                     {
+                        if (region is { } crop) bitmap = Images.Crop(bitmap, crop);
+                        lock (_gate)
+                        {
+                            if (_generation != generation) continue;
+                            if (!_locked && Replay.Enabled) Replay.Submit(bitmap);
+                        }
                         if (videoActive)
                         {
-                            if (writer == null) { writer = new Mp4Writer(current!.Path, bitmap.PixelWidth, bitmap.PixelHeight); videoClock.Restart(); }
-                            writer.Write(bitmap, videoClock.Elapsed.Ticks);
+                            if (writer == null) { writer = new VideoSession(current!.Path, current.Options); videoClock.Restart(); }
+                            if (VideoPaused) { videoClock.Stop(); writer.Pause(); }
+                            else { if (!videoClock.IsRunning) { writer.Pause(); videoClock.Start(); } writer.Submit(bitmap, videoClock.Elapsed.Ticks); }
                             Interlocked.Exchange(ref _videoTicks, videoClock.Elapsed.Ticks);
-                            lock (_gate) _videoStarted = true;
-                            current!.Started.TrySetResult(true);
+                            if (writer.Started.Task.IsCompletedSuccessfully) { lock (_gate) _videoStarted = true; current!.Started.TrySetResult(true); }
                         }
                         if (historyActive && clock.ElapsedMilliseconds >= nextHistory)
                         {
-                            if (!ReferenceEquals(encodedBitmap, bitmap))
-                            {
-                                encoded = new CaptureFrame(DateTimeOffset.Now, monitor, bitmap.PixelWidth, bitmap.PixelHeight, Images.EncodeJpeg(bitmap)); encodedBitmap = bitmap;
-                            }
-                            lock (_gate) { if (_generation == generation) Buffer.Add(encoded! with { CapturedAt = DateTimeOffset.Now }); }
-                            // Keep the one-second cadence anchored to the clock. Adding a
-                            // second after JPEG encoding can accidentally skip the next tick.
+                            historyEncoder.Submit(bitmap, monitor, DateTimeOffset.Now, generation);
                             nextHistory = (clock.ElapsedMilliseconds / 1000 + 1) * 1000;
                         }
                         lock (_gate) Error = null;
@@ -146,21 +169,22 @@ public sealed class CaptureService : IDisposable
                 catch (Exception e)
                 {
                     if (current != null) FinishVideo(e);
-                    capture.Dispose(); encodedBitmap = null; encoded = null;
-                    lock (_gate) Error = $"Захват недоступен ({e.HResult:X8}). Проверьте монитор или сеанс Windows.";
+                    capture.Dispose();
+                    lock (_gate) Error = e is InvalidOperationException ? e.Message : $"Захват недоступен ({e.HResult:X8}). Проверьте источник и сеанс Windows.";
                 }
                 if (clock.ElapsedMilliseconds >= nextNotify) { StateChanged?.Invoke(); nextNotify = clock.ElapsedMilliseconds + 500; }
-                var period = current == null ? 1000 : 1000 / Mp4Writer.FrameRate;
+                var fps = Math.Max(current?.Options.Fps ?? 1, Replay.Enabled && !locked ? Replay.Fps : 1);
+                var period = (int)Math.Ceiling(1000d / fps);
                 var wait = Math.Max(0, period - (clock.ElapsedMilliseconds - loopStart));
-                if (current == null && historyActive && encoded != null)
+                if (current == null && historyActive)
                     wait = Math.Max(1, Math.Min(wait, nextHistory - clock.ElapsedMilliseconds));
                 _wake.WaitOne((int)wait);
             }
         }
-        finally { current ??= _video; FinishVideo(); }
+        finally { current ??= _video; FinishVideo(); windowCapture?.Dispose(); }
     }
     public void Dispose()
     {
-        _stop.Cancel(); _wake.Set(); _worker.GetAwaiter().GetResult(); _wake.Dispose(); _stop.Dispose(); Buffer.Clear();
+        _stop.Cancel(); _wake.Set(); _worker.GetAwaiter().GetResult(); _wake.Dispose(); _stop.Dispose(); Buffer.Clear(); Replay.Dispose();
     }
 }

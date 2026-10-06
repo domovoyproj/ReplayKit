@@ -20,7 +20,7 @@
    <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" Margin="0,14,0,0"><StackPanel x:Name="Filmstrip" Orientation="Horizontal" HorizontalAlignment="Center"/></ScrollViewer>
    <Grid x:Name="Footer" Grid.Row="4" Margin="0,14,0,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <StackPanel Orientation="Horizontal"><ComboBox x:Name="Monitors" Width="175" SelectionChanged="OnMonitor" AutomationProperties.Name="Монитор"/><StackPanel Margin="14,1,0,0" VerticalAlignment="Center"><TextBlock x:Name="FrameTime" FontWeight="SemiBold"/><TextBlock x:Name="FrameDetails" FontSize="11" Foreground="{DynamicResource MutedBrush}"/></StackPanel></StackPanel>
-    <StackPanel x:Name="Actions" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="EditButton" Content="Редактировать" Click="OnEdit" ToolTip="E"/><Button x:Name="SaveButton" Content="Сохранить" Click="OnSave" ToolTip="Ctrl+S"/><Button x:Name="CopyButton" Style="{StaticResource PrimaryButton}" Content="Копировать" Click="OnCopy" ToolTip="Ctrl+C"/></StackPanel>
+    <StackPanel x:Name="Actions" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="Ещё" Click="OnMore"/><Button x:Name="EditButton" Content="Редактировать" Click="OnEdit" ToolTip="E"/><Button x:Name="SaveButton" Content="Сохранить" Click="OnSave" ToolTip="Ctrl+S"/><Button x:Name="CopyButton" Style="{StaticResource PrimaryButton}" Content="Копировать" Click="OnCopy" ToolTip="Ctrl+C"/></StackPanel>
    </Grid>
   </Grid>
  </Border>

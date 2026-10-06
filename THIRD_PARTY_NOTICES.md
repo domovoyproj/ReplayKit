@@ -3,6 +3,8 @@
 ReplayKit includes Vortice.Windows (Copyright © Amer Koleci and contributors),
 SharpGen.Runtime (Copyright © 2010–2017 Alexandre Mutel, 2017 Jeremy Koritzinsky), and Microsoft .NET / WPF
 (Copyright © .NET Foundation and contributors). These components are licensed under MIT.
+NAudio (Copyright © Mark Heath and contributors) and C#/WinRT / Windows SDK .NET projections
+(Copyright © Microsoft Corporation) are also included under the MIT license.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -29,3 +31,6 @@ Upstream licenses and additional .NET notices:
 - https://github.com/dotnet/runtime/blob/v8.0.0/LICENSE.TXT
 - https://github.com/dotnet/runtime/blob/v8.0.0/THIRD-PARTY-NOTICES.TXT
 - https://github.com/dotnet/wpf/blob/main/LICENSE.TXT
+
+- https://github.com/naudio/NAudio/blob/v2.2.1/license.txt
+- https://github.com/microsoft/CsWinRT/blob/master/LICENSE

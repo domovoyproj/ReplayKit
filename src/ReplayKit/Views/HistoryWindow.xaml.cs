@@ -11,6 +11,7 @@ public partial class HistoryWindow : Window
     private readonly Action _toggleVideo;
     private CaptureFrame[] _frames = Array.Empty<CaptureFrame>();
     private BitmapSource[] _previews = Array.Empty<BitmapSource>();
+    private CaptureFrame? _comparison;
     private int _selected = -1;
     private int _loadGeneration;
     private bool _initializing = true;
@@ -39,11 +40,12 @@ public partial class HistoryWindow : Window
     }
     private void OnCaptureState() => Dispatcher.BeginInvoke(() =>
     {
-        CaptureState.Text = _capture.VideoRecording ? $"● MP4 {_capture.VideoDuration:mm\\:ss}" : _capture.Error != null ? "Захват недоступен" : _capture.Recording ? "● Буфер" : "Ⅱ Пауза";
+        var duration = _capture.VideoDuration;
+        CaptureState.Text = _capture.VideoRecording ? $"{(_capture.VideoPaused ? "Ⅱ" : "●")} {(int)duration.TotalHours:00}:{duration.Minutes:00}:{duration.Seconds:00}" : _capture.Error != null ? "Захват недоступен" : _capture.Recording ? "● Буфер" : _capture.Replay.Enabled && !_capture.Locked ? "● Видеобуфер" : "Ⅱ Пауза";
         VideoButton.Content = _capture.VideoRecording ? "■ Стоп" : _capture.VideoPending ? "Подготовка…" : "● Видео";
         Monitors.IsEnabled = !_capture.VideoPending;
         VideoButton.IsEnabled = !_capture.VideoPending || _capture.VideoRecording;
-        if (_frames.Length == 0 && _capture.Error != null) EmptyHint.Text = _capture.Error;
+        if (_frames.Length == 0) EmptyHint.Text = _capture.Status;
     });
     private async Task LoadSnapshotAsync()
     {
@@ -140,6 +142,49 @@ public partial class HistoryWindow : Window
     private void OnMaximize(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void OnSettings(object sender, RoutedEventArgs e) => _openSettings();
     private void OnVideo(object sender, RoutedEventArgs e) => _toggleVideo();
+    private void OnMore(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        void Add(string title, Action action, bool enabled = true) { var item = new MenuItem { Header = title, IsEnabled = enabled }; item.Click += (_, _) => action(); menu.Items.Add(item); }
+        Add("Закрепить кадр", () => new ImageToolsWindow(Images.Decode(Selected!)).Show(), Selected != null);
+        Add(_comparison == null ? "Выбрать кадр для сравнения" : "Сравнить с выбранным кадром", () => { if (_comparison == null) { _comparison = Selected; RelativeTime.Text = "Выберите второй кадр → Ещё → Сравнить"; } else { new ImageToolsWindow(Images.Decode(_comparison), Images.Decode(Selected!)).Show(); _comparison = null; } }, Selected != null);
+        Add("Распознать текст", Recognize, Selected != null);
+        Add("Выбрать окно / экран", PickSource, !_capture.VideoPending);
+        Add("Выделить область монитора", PickRegion, Selected != null && !_capture.VideoPending && _capture.IsMonitorSource);
+        Add("Захватывать весь монитор", () => { _capture.SelectSource(null); _ = LoadSnapshotAsync(); }, !_capture.VideoPending);
+        Add("Видеобуфер", () => (Application.Current as App)?.OpenReplay());
+        menu.PlacementTarget = (Button)sender; menu.IsOpen = true;
+    }
+    private async void Recognize()
+    {
+        if (Selected is not { } frame) return;
+        try
+        {
+            RelativeTime.Text = "Распознаём…";
+            var text = await TextRecognition.ReadAsync(Images.Decode(frame));
+            if (string.IsNullOrWhiteSpace(text)) { RelativeTime.Text = "Текст не найден"; return; }
+            Clipboard.SetText(text); RelativeTime.Text = "Текст скопирован ✓";
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Распознавание текста"); }
+    }
+    private async void PickSource()
+    {
+        try
+        {
+            if (!Windows.Graphics.Capture.GraphicsCaptureSession.IsSupported()) { MessageBox.Show(this, "Windows Graphics Capture недоступен."); return; }
+            var picker = new Windows.Graphics.Capture.GraphicsCapturePicker();
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            var item = await picker.PickSingleItemAsync();
+            if (item != null) { _capture.SelectSource(item); await LoadSnapshotAsync(); }
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Источник захвата"); }
+    }
+    private async void PickRegion()
+    {
+        if (Selected is not { } frame) return;
+        var dialog = new ImageToolsWindow(Images.Decode(frame), selectRegion: true) { Owner = this };
+        if (dialog.ShowDialog() == true) { _capture.SelectSource(null, dialog.SelectedRegion); await LoadSnapshotAsync(); }
+    }
     private void OnWindowSize(object sender, SizeChangedEventArgs e)
     {
         if (Actions == null) return;
