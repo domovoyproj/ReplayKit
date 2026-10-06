@@ -13,6 +13,7 @@ public partial class HistoryWindow : Window
     private int _selected = -1;
     private int _loadGeneration;
     private bool _initializing = true;
+    private bool _loading;
     private readonly System.Windows.Threading.DispatcherTimer _emptyTimer;
     public HistoryWindow(CaptureService capture, Settings settings, Action<string> selectMonitor, Action openSettings)
     {
@@ -23,7 +24,7 @@ public partial class HistoryWindow : Window
         Monitors.SelectedItem = Monitors.Items.Cast<ComboBoxItem>().FirstOrDefault(x => (string)x.Tag == capture.MonitorId);
         _initializing = false;
         _emptyTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _emptyTimer.Tick += async (_, _) => { if (_frames.Length == 0) await LoadSnapshotAsync(); };
+        _emptyTimer.Tick += async (_, _) => { if (_frames.Length == 0 && !_loading) await LoadSnapshotAsync(); };
         _capture.StateChanged += OnCaptureState;
         Closed += (_, _) => { _loadGeneration++; _emptyTimer.Stop(); _capture.StateChanged -= OnCaptureState; _previews = Array.Empty<BitmapSource>(); _frames = Array.Empty<CaptureFrame>(); Preview.Source = null; Filmstrip.Children.Clear(); };
     }
@@ -52,7 +53,10 @@ public partial class HistoryWindow : Window
             FrameTime.Text = ""; FrameDetails.Text = ""; return;
         }
         EmptyTitle.Text = "Подготавливаем историю…";
-        var decoded = await Task.Run(() => frames.Select(f => Images.Decode(f, 1280)).ToArray());
+        _loading = true;
+        BitmapSource[] decoded;
+        try { decoded = await Task.Run(() => frames.Select(f => Images.Decode(f, 1280)).ToArray()); }
+        finally { _loading = false; }
         if (generation != _loadGeneration) return;
         _frames = frames; _previews = decoded; EmptyState.Visibility = Visibility.Collapsed;
         Timeline.Value = 0; SelectOffset(0); SetActions(true); BuildFilmstrip();
@@ -129,4 +133,11 @@ public partial class HistoryWindow : Window
     private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void OnMaximize(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void OnSettings(object sender, RoutedEventArgs e) => _openSettings();
+    private void OnWindowSize(object sender, SizeChangedEventArgs e)
+    {
+        if (Actions == null) return;
+        var narrow = ActualWidth < 890;
+        Grid.SetRow(Actions, narrow ? 1 : 0); Grid.SetColumn(Actions, narrow ? 0 : 1);
+        Grid.SetColumnSpan(Actions, narrow ? 2 : 1); Actions.Margin = narrow ? new Thickness(0, 12, 0, 0) : new Thickness(0);
+    }
 }

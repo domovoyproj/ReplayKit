@@ -52,7 +52,7 @@ public partial class App : Application
         menu.Items.Add("Открыть историю", null, (_, _) => OpenHistory());
         menu.Items.Add("Запись / пауза", null, (_, _) => _capture!.Toggle());
         menu.Items.Add("Настройки", null, (_, _) => OpenSettings());
-        menu.Items.Add("Очистить буфер", null, (_, _) => _capture!.Buffer.Clear());
+        menu.Items.Add("Очистить буфер", null, (_, _) => { _history?.Close(); _capture!.Buffer.Clear(); });
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("Выйти", null, (_, _) => Shutdown());
         _tray = new System.Windows.Forms.NotifyIcon { Visible = true, Icon = _recordingIcon, Text = "ReplayKit · запись", ContextMenuStrip = menu };
@@ -80,7 +80,7 @@ public partial class App : Application
             _history = new HistoryWindow(_capture, Settings, SelectMonitor, OpenSettings);
             _history.Closed += (_, _) => _history = null;
         }
-        if (_history.IsVisible) { _history.Activate(); return; }
+        if (_history.IsVisible) { if (_history.WindowState == WindowState.Minimized) _history.WindowState = WindowState.Normal; _history.Activate(); return; }
         _history.Show(); _history.Activate();
     }
     private void SelectMonitor(string monitor)

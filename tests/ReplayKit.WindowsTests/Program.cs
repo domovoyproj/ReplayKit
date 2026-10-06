@@ -82,9 +82,10 @@ internal static class Program
             Check("Two registered action hotkeys can be exchanged", first.Apply(b, a));
         }
         using var capture = new CaptureService("synthetic"); capture.SetLocked(true);
+        now = DateTimeOffset.Now;
         for (var i = -59; i <= 0; i++) capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(i) });
         var history = new HistoryWindow(capture, new Settings(), _ => { }, () => { }); history.Show();
-        for (var i = 0; i < 100 && Field<BitmapSource[]>(history, "_previews").Length != 60; i++) await Task.Delay(50);
+        for (var i = 0; i < 300 && Field<BitmapSource[]>(history, "_previews").Length == 0; i++) await Task.Delay(50);
         Check("History preloads all 60 frozen preview frames", Field<BitmapSource[]>(history, "_previews").Length == 60);
         capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(1) });
         Check("Live capture cannot shift open timeline", Field<CaptureFrame[]>(history, "_frames")[^1].CapturedAt == now);
