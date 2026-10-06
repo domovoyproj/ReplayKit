@@ -61,7 +61,7 @@ dotnet run --project tests/ReplayKit.WindowsTests -c Release -- --capture
 
 `artifacts/` содержит self-contained portable ZIP, установщик (при наличии ISCC) и SHA256SUMS.
 WPF-проверки создают изображения интерфейса **с синтетическим тестовым кадром**, не сохраняют захваченный рабочий стол и не меняют автозапуск.
-GitHub Actions собирает, проверяет и упаковывает Windows-версию. Тег `v1.0.0` публикует GitHub Release.
+GitHub Actions собирает, проверяет и упаковывает Windows-версию, затем проверяет установку, запуск и удаление на чистом runner. Тег `v1.0.0` публикует GitHub Release.
 Бинарные файлы не подписаны сертификатом издателя.
 
 ## Архитектура и Graphify

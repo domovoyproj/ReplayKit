@@ -55,3 +55,9 @@ begin
   if FileExists(ExpandConstant('{app}\ReplayKit.exe')) then
     Exec(ExpandConstant('{app}\ReplayKit.exe'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'ReplayKit');
+end;
