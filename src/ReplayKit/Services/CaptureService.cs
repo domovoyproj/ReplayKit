@@ -151,7 +151,10 @@ public sealed class CaptureService : IDisposable
                 }
                 if (clock.ElapsedMilliseconds >= nextNotify) { StateChanged?.Invoke(); nextNotify = clock.ElapsedMilliseconds + 500; }
                 var period = current == null ? 1000 : 1000 / Mp4Writer.FrameRate;
-                _wake.WaitOne((int)Math.Max(0, period - (clock.ElapsedMilliseconds - loopStart)));
+                var wait = Math.Max(0, period - (clock.ElapsedMilliseconds - loopStart));
+                if (current == null && historyActive && encoded != null)
+                    wait = Math.Max(1, Math.Min(wait, nextHistory - clock.ElapsedMilliseconds));
+                _wake.WaitOne((int)wait);
             }
         }
         finally { current ??= _video; FinishVideo(); }

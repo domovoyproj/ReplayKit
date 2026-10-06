@@ -160,8 +160,11 @@ internal static class Program
         using (var recording = new CaptureService("test monitor", (_, _) => image))
         {
             recording.SetLocked(false);
-            await Task.Delay(2300);
+            // Cold JIT/encoder startup can exceed 300 ms on a shared CI runner.
+            // Wait for actual samples, then measure their cadence instead of startup latency.
+            for (var t = 0; t < 120 && recording.Buffer.Snapshot(DateTimeOffset.Now).Length < 3; t++) await Task.Delay(50);
             var initialHistory = recording.Buffer.Snapshot(DateTimeOffset.Now);
+            Console.WriteLine($"Worker history: {initialHistory.Length} frames; intervals: {string.Join(", ", initialHistory.Zip(initialHistory.Skip(1), (a, b) => (b.CapturedAt - a.CapturedAt).TotalMilliseconds.ToString("F0")))} ms");
             Check("History does not skip every other tick after JPEG encoding", initialHistory.Length >= 3 && (initialHistory[1].CapturedAt - initialHistory[0].CapturedAt).TotalSeconds < 1.5);
             var workerVideo = Path.GetFullPath("artifacts/qa/worker-video.mp4");
             await recording.StartVideoAsync(workerVideo).WaitAsync(TimeSpan.FromSeconds(10));
