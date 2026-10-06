@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 namespace ReplayKit.Services;
 
 /// <summary>Encoder owner thread with a three-frame queue: a slow encoder never blocks DXGI.</summary>
-internal sealed class VideoSession
+internal sealed class VideoSession : IDisposable
 {
     private readonly BlockingCollection<(BitmapSource Image, long Ticks)> _frames = new(3);
     private readonly object _gate = new();
@@ -26,6 +26,7 @@ internal sealed class VideoSession
     }
     public void Pause() { lock (_gate) _audio?.Clear(); }
     public void Stop() { lock (_gate) { if (!_frames.IsAddingCompleted) _frames.CompleteAdding(); } }
+    public void Dispose() { Stop(); Finished.GetAwaiter().GetResult(); _frames.Dispose(); }
     private string? Run(string path, VideoOptions options)
     {
         Mp4Writer? writer = null; long audioFrames = 0;

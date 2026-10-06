@@ -11,9 +11,7 @@ public sealed class ImageToolsWindow : Window
         Width = compare == null ? 800 : 1180; Height = 620; MinWidth = 320; MinHeight = 240;
         Style = (Style)FindResource(typeof(Window)); Topmost = !selectRegion && compare == null;
         var root = new DockPanel { Margin = new(16) };
-        var header = new DockPanel(); DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
-        var close = new Button { Content = "Закрыть", HorizontalAlignment = HorizontalAlignment.Right }; close.Click += (_, _) => Close(); DockPanel.SetDock(close, Dock.Right); header.Children.Add(close);
-        var title = new TextBlock { Text = Title, FontSize = 18, Margin = new(8) }; title.MouseLeftButtonDown += (_, _) => DragMove(); header.Children.Add(title);
+        var header = WindowChrome.Create(this, Title); DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         var grid = new Grid(); root.Children.Add(grid);
         if (selectRegion)
         {
@@ -39,8 +37,14 @@ public sealed class ImageToolsWindow : Window
         else
         {
             grid.ColumnDefinitions.Add(new()); if (compare != null) grid.ColumnDefinitions.Add(new());
-            grid.Children.Add(new Image { Source = image, Stretch = Stretch.Uniform, Margin = new(8) });
-            if (compare != null) { var second = new Image { Source = compare, Stretch = Stretch.Uniform, Margin = new(8) }; Grid.SetColumn(second, 1); grid.Children.Add(second); }
+            UIElement Panel(BitmapSource source, string label)
+            {
+                var panel = new DockPanel { Margin = new(8) };
+                if (compare != null) { var caption = new TextBlock { Text = label, Margin = new(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Center }; DockPanel.SetDock(caption, Dock.Top); panel.Children.Add(caption); }
+                panel.Children.Add(new Image { Source = source, Stretch = Stretch.Uniform }); return panel;
+            }
+            grid.Children.Add(Panel(image, "Выбранный ранее"));
+            if (compare != null) { var second = Panel(compare, "Текущий кадр"); Grid.SetColumn(second, 1); grid.Children.Add(second); }
         }
         var surface = new Border { CornerRadius = new(24), Background = (Brush)FindResource("WindowBrush"), Child = root, Margin = new(12) };
         surface.SetResourceReference(Border.BackgroundProperty, "WindowBrush"); Content = surface;

@@ -65,8 +65,9 @@ internal static class UpgradeChecks
             var movie = await Task.Run(() => VideoChecks.Decode(destination));
             check("Resumed MP4 excludes paused time", movie.LastTime < TimeSpan.FromSeconds(1.8).Ticks && movie.LastTime > TimeSpan.FromSeconds(.7).Ticks);
             capture.Replay.Configure(new Settings { ReplayEnabled = true, ReplaySeconds = 15, ReplayMemoryMb = 64 });
-            await Task.Delay(1300);
+            for (var i = 0; i < 200 && capture.Replay.Snapshot().Length < 8 && capture.Replay.Error == null; i++) await Task.Delay(50);
             var snapshot = capture.Replay.Snapshot();
+            Console.WriteLine($"Replay startup: frames={snapshot.Length}, bytes={capture.Replay.Bytes}, error={capture.Replay.Error ?? "none"}");
             check("Replay collects compressed frames within RAM budget", snapshot.Length > 5 && capture.Replay.Bytes <= 64L * 1024 * 1024 && snapshot[0].Frame.Width <= 960);
             var replayUi = new ReplayWindow(snapshot, 15); replayUi.Show(); await Task.Delay(150); render(replayUi, "replay-dark");
             check("Replay viewer opens a frozen timeline", replayUi.IsVisible); replayUi.Close();
@@ -84,6 +85,18 @@ internal static class UpgradeChecks
         var compare = new ImageToolsWindow(image, VideoChecks.Solid(1024, 640)); compare.Show(); await Task.Delay(80); render(compare, "compare-dark"); compare.Close();
         var text = await TextRecognition.ReadAsync(image);
         check("Local Windows OCR recognizes synthetic screenshot", text.Contains("ReplayKit", StringComparison.OrdinalIgnoreCase));
+        using (var pressure = new ReplayBuffer())
+        {
+            var pixels = new byte[960 * 540 * 4]; new Random(711).NextBytes(pixels);
+            var noise = BitmapSource.Create(960, 540, 96, 96, System.Windows.Media.PixelFormats.Bgr32, null, pixels, 960 * 4); noise.Freeze();
+            pressure.Configure(new Settings { ReplayEnabled = true, ReplaySeconds = 60, ReplayMemoryMb = 64, ReplayEconomy = false });
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            while (timer.Elapsed < TimeSpan.FromSeconds(30) && pressure.EvictedFrames == 0) { pressure.Submit(noise); await Task.Delay(35); }
+            check("High-entropy replay evicts frames at the configured RAM limit", pressure.EvictedFrames > 0 && pressure.Bytes <= 64L * 1024 * 1024);
+            var smaller = VideoChecks.Solid(400, 300);
+            for (var i = 0; i < 4; i++) { pressure.Submit(smaller); await Task.Delay(100); }
+            check("Source resize resets incompatible replay frames", pressure.Snapshot().Length > 0 && pressure.Snapshot().All(f => f.Frame.Width == 400));
+        }
     }
     private static (long Bytes, int Peak) DecodeAudio(string path)
     {

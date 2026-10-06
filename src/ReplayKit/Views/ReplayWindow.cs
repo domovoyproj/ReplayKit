@@ -10,7 +10,7 @@ public sealed class ReplayWindow : Window
     private readonly Slider _position = new() { IsSnapToTickEnabled = true, TickFrequency = 1 };
     private readonly Slider _start = new() { IsSnapToTickEnabled = true, TickFrequency = 1 };
     private readonly Slider _end = new() { IsSnapToTickEnabled = true, TickFrequency = 1 };
-    private readonly TextBlock _status = new() { Margin = new(4) };
+    private readonly TextBlock _status = new() { Margin = new(4), TextWrapping = TextWrapping.Wrap };
     private readonly CheckBox _audio = new() { Content = "Со звуком", Margin = new(8) };
     private readonly System.Windows.Threading.DispatcherTimer _timer;
     private int _generation;
@@ -22,9 +22,7 @@ public sealed class ReplayWindow : Window
         _frames = frames; _fps = fps; Title = "ReplayKit — видеобуфер"; Width = 960; Height = 740; MinWidth = 600; MinHeight = 500;
         Style = (Style)FindResource(typeof(Window));
         var root = new DockPanel { Margin = new(24) };
-        var top = new StackPanel { Orientation = Orientation.Horizontal };
-        top.Children.Add(Button("Закрыть", () => Close())); top.Children.Add(new TextBlock { Text = "Последние секунды", FontSize = 20, Margin = new(12) });
-        top.MouseLeftButtonDown += (_, e) => { if (e.OriginalSource is TextBlock) DragMove(); };
+        var top = WindowChrome.Create(this, "Последние секунды");
         DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
         var bottom = new StackPanel(); DockPanel.SetDock(bottom, Dock.Bottom); root.Children.Add(bottom);
         bottom.Children.Add(_status); bottom.Children.Add(_position);
@@ -51,7 +49,9 @@ public sealed class ReplayWindow : Window
             _position.Value = index;
             if (target >= _frames[(int)_end.Value].Ticks + TimeSpan.TicksPerSecond / _fps) StopPlayback();
         };
-        foreach (var slider in new[] { _position, _start, _end }) slider.PreviewMouseDown += (_, _) => StopPlayback();
+        foreach (var slider in new[] { _position, _start, _end }) { slider.PreviewMouseDown += (_, _) => StopPlayback(); slider.PreviewKeyDown += (_, _) => StopPlayback(); }
+        void AudioChanged(object sender, RoutedEventArgs e) { if (_timer.IsEnabled) { StopPlayback(); TogglePlayback(); } }
+        _audio.Checked += AudioChanged; _audio.Unchecked += AudioChanged;
         Loaded += async (_, _) => { WindowPlacement.CenterAtCursor(this); WindowPlacement.ExcludeFromCapture(this); await ShowFrame(); };
         Closed += (_, _) => { _generation++; StopPlayback(); _image.Source = null; };
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };

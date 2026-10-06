@@ -7,7 +7,7 @@ namespace ReplayKit.Services;
 internal sealed class AudioMixer : IDisposable
 {
     private readonly List<(WasapiCapture Capture, BufferedWaveProvider Buffer, double Volume)> _inputs = new();
-    private Exception? _error;
+    private volatile Exception? _error;
     public AudioMixer(VideoOptions options)
     {
         try

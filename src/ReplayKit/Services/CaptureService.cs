@@ -106,7 +106,7 @@ public sealed class CaptureService : IDisposable
             string? saved = null;
             try { if (writer != null) { writer.Stop(); saved = writer.Finished.GetAwaiter().GetResult(); if (writer.Error != null) error ??= new IOException(writer.Error); } }
             catch (Exception e) { error ??= e; }
-            finally { writer = null; }
+            finally { try { writer?.Dispose(); } catch (Exception e) { error ??= e; } writer = null; }
             var completed = current; current = null;
             lock (_gate) { if (_video == completed) _video = null; _videoStarted = false; _videoPaused = false; _stopVideo = false; VideoError = error?.Message; }
             if (!completed.Started.Task.IsCompleted)
@@ -170,7 +170,9 @@ public sealed class CaptureService : IDisposable
                 {
                     if (current != null) FinishVideo(e);
                     capture.Dispose();
+                    windowCapture?.Dispose(); windowCapture = null; activeItem = null;
                     lock (_gate) Error = e is InvalidOperationException ? e.Message : $"Захват недоступен ({e.HResult:X8}). Проверьте источник и сеанс Windows.";
+                    _wake.WaitOne(1000);
                 }
                 if (clock.ElapsedMilliseconds >= nextNotify) { StateChanged?.Invoke(); nextNotify = clock.ElapsedMilliseconds + 500; }
                 var fps = Math.Max(current?.Options.Fps ?? 1, Replay.Enabled && !locked ? Replay.Fps : 1);
