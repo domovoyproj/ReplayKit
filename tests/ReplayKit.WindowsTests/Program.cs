@@ -87,6 +87,8 @@ internal static class Program
         // Exact one-second/60-second retention is covered independently by core tests.
         for (var i = -59; i <= 0; i++) capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(i * 0.5) });
         var history = new HistoryWindow(capture, new Settings(), _ => { }, () => { }); history.Show();
+        Check("Custom window chrome is active", history.WindowStyle == WindowStyle.None && history.AllowsTransparency);
+        Check("Dark theme foreground inherits into live window", ((SolidColorBrush)history.Foreground).Color == ((SolidColorBrush)Application.Current.FindResource("TextBrush")).Color);
         for (var i = 0; i < 300 && Field<BitmapSource[]>(history, "_previews").Length == 0; i++) await Task.Delay(50);
         Check("History preloads all 60 frozen preview frames", Field<BitmapSource[]>(history, "_previews").Length == 60);
         capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(1) });
@@ -99,10 +101,18 @@ internal static class Program
             var watch = Stopwatch.StartNew(); Call(history, "SelectOffset", i); history.UpdateLayout(); samples.Add(watch.Elapsed.TotalMilliseconds);
         }
         Check($"Frame selection below 100ms (maximum {samples.Max():F2}ms)", samples.Max() < 100);
+        history.WindowState = WindowState.Maximized; await Task.Delay(100);
+        var dpi = VisualTreeHelper.GetDpi(history);
+        var work = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position).WorkingArea;
+        Check("Borderless maximization respects taskbar working area", history.ActualWidth * dpi.DpiScaleX <= work.Width + 2 && history.ActualHeight * dpi.DpiScaleY <= work.Height + 2);
+        history.WindowState = WindowState.Normal;
         await Task.Delay(150); RenderUi(history, "history-dark");
-        ThemeService.Apply("Light"); await Task.Delay(100); RenderUi(history, "history-light"); ThemeService.Apply("Dark");
+        ThemeService.Apply("Light"); await Task.Delay(100);
+        Check("Live theme changes update window foreground", ((SolidColorBrush)history.Foreground).Color == ((SolidColorBrush)Application.Current.FindResource("TextBrush")).Color);
+        RenderUi(history, "history-light"); ThemeService.Apply("Dark");
         history.Close();
         var editor = new EditorWindow(decoded); editor.Show(); await Task.Delay(100);
+        Check("Editor uses custom transparent chrome", editor.WindowStyle == WindowStyle.None && editor.AllowsTransparency);
         var withMark = (BitmapSource)Call(editor, "Render", (Action<DrawingContext>)(dc => dc.DrawRectangle(Brushes.Black, null, new Rect(10, 10, 40, 40))))!;
         Call(editor, "Push", withMark);
         var samplePixel = new byte[4]; withMark.CopyPixels(new Int32Rect(20, 20, 1, 1), samplePixel, 4, 0);
@@ -112,6 +122,9 @@ internal static class Program
         var crop = Images.Crop(withMark, new Int32Rect(100, 100, 400, 300)); Call(editor, "Push", crop);
         Check("Crop uses original pixel coordinates", Field<BitmapSource>(editor, "_image").PixelWidth == 400);
         Call(editor, "Undo"); RenderUi(editor, "editor-dark"); editor.Close();
+        var settings = new SettingsWindow(new Settings(), _ => null); settings.Show();
+        Check("Settings use custom transparent chrome", settings.WindowStyle == WindowStyle.None && settings.AllowsTransparency);
+        await Task.Delay(100); RenderUi(settings, "settings-dark"); settings.Close();
         if (args.Contains("--capture"))
         {
             using var dxgi = new DxgiCapture();

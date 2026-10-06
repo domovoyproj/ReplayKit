@@ -1,4 +1,4 @@
-<Window x:Class="ReplayKit.Views.HistoryWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="ReplayKit — история" Width="1160" Height="830" MinWidth="580" MinHeight="430" PreviewKeyDown="OnKey" Loaded="OnLoaded" SizeChanged="OnWindowSize">
+<Window x:Class="ReplayKit.Views.HistoryWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Style="{StaticResource {x:Type Window}}" Title="ReplayKit — история" Width="1160" Height="830" MinWidth="580" MinHeight="430" PreviewKeyDown="OnKey" Loaded="OnLoaded" SizeChanged="OnWindowSize">
  <Border Margin="12" CornerRadius="24" Background="{DynamicResource WindowBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
   <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.24"/></Border.Effect>
   <Grid Margin="24,18,24,22">
