@@ -8,6 +8,7 @@ public partial class HistoryWindow : Window
     private readonly CaptureService _capture;
     private readonly Action<string> _selectMonitor;
     private readonly Action _openSettings;
+    private readonly Action _toggleVideo;
     private CaptureFrame[] _frames = Array.Empty<CaptureFrame>();
     private BitmapSource[] _previews = Array.Empty<BitmapSource>();
     private int _selected = -1;
@@ -15,9 +16,10 @@ public partial class HistoryWindow : Window
     private bool _initializing = true;
     private bool _loading;
     private readonly System.Windows.Threading.DispatcherTimer _emptyTimer;
-    public HistoryWindow(CaptureService capture, Settings settings, Action<string> selectMonitor, Action openSettings)
+    public HistoryWindow(CaptureService capture, Settings settings, Action<string> selectMonitor, Action openSettings, Action? toggleVideo = null)
     {
         _capture = capture; _selectMonitor = selectMonitor; _openSettings = openSettings;
+        _toggleVideo = toggleVideo ?? (() => { });
         InitializeComponent();
         foreach (var screen in System.Windows.Forms.Screen.AllScreens)
             Monitors.Items.Add(new ComboBoxItem { Content = $"Монитор {Monitors.Items.Count + 1} · {screen.Bounds.Width}×{screen.Bounds.Height}", Tag = screen.DeviceName });
@@ -26,6 +28,7 @@ public partial class HistoryWindow : Window
         _emptyTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _emptyTimer.Tick += async (_, _) => { if (_frames.Length == 0 && !_loading) await LoadSnapshotAsync(); };
         _capture.StateChanged += OnCaptureState;
+        OnCaptureState();
         Closed += (_, _) => { _loadGeneration++; _emptyTimer.Stop(); _capture.StateChanged -= OnCaptureState; _previews = Array.Empty<BitmapSource>(); _frames = Array.Empty<CaptureFrame>(); Preview.Source = null; Filmstrip.Children.Clear(); };
     }
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -36,7 +39,10 @@ public partial class HistoryWindow : Window
     }
     private void OnCaptureState() => Dispatcher.BeginInvoke(() =>
     {
-        CaptureState.Text = _capture.Error != null ? "Захват недоступен" : _capture.Recording ? "● Запись" : "Ⅱ Пауза";
+        CaptureState.Text = _capture.VideoRecording ? $"● MP4 {_capture.VideoDuration:mm\\:ss}" : _capture.Error != null ? "Захват недоступен" : _capture.Recording ? "● Буфер" : "Ⅱ Пауза";
+        VideoButton.Content = _capture.VideoRecording ? "■ Стоп" : _capture.VideoPending ? "Подготовка…" : "● Видео";
+        Monitors.IsEnabled = !_capture.VideoPending;
+        VideoButton.IsEnabled = !_capture.VideoPending || _capture.VideoRecording;
         if (_frames.Length == 0 && _capture.Error != null) EmptyHint.Text = _capture.Error;
     });
     private async Task LoadSnapshotAsync()
@@ -133,9 +139,11 @@ public partial class HistoryWindow : Window
     private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void OnMaximize(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void OnSettings(object sender, RoutedEventArgs e) => _openSettings();
+    private void OnVideo(object sender, RoutedEventArgs e) => _toggleVideo();
     private void OnWindowSize(object sender, SizeChangedEventArgs e)
     {
         if (Actions == null) return;
+        AppTitle.Visibility = ActualWidth < 760 ? Visibility.Collapsed : Visibility.Visible;
         var narrow = ActualWidth < 890;
         Grid.SetRow(Actions, narrow ? 1 : 0); Grid.SetColumn(Actions, narrow ? 0 : 1);
         Grid.SetColumnSpan(Actions, narrow ? 2 : 1); Actions.Margin = narrow ? new Thickness(0, 12, 0, 0) : new Thickness(0);

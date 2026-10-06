@@ -14,6 +14,8 @@ public sealed class DxgiCapture : IDisposable
     private IDXGIOutputDuplication? _duplication;
     private ID3D11Texture2D? _staging;
     private CaptureFrame? _last;
+    private BitmapSource? _lastBitmap;
+    private BitmapSource? _encodedBitmap;
     private string? _monitorId;
     private ModeRotation _rotation;
 
@@ -46,19 +48,35 @@ public sealed class DxgiCapture : IDisposable
 
     public CaptureFrame? Capture(string monitorId, DateTimeOffset at)
     {
+        var bitmap = CaptureBitmap(monitorId);
+        if (bitmap == null) return null;
+        if (!ReferenceEquals(bitmap, _encodedBitmap))
+        {
+            _last = new CaptureFrame(at, monitorId, bitmap.PixelWidth, bitmap.PixelHeight, Images.EncodeJpeg(bitmap));
+            _encodedBitmap = bitmap;
+        }
+        return _last! with { CapturedAt = at };
+    }
+
+    public BitmapSource? CaptureBitmap(string monitorId, uint timeoutMilliseconds = 100)
+    {
         if (_duplication == null || _monitorId != monitorId) Initialize(monitorId);
-        // Drain outstanding desktop updates to avoid returning a stale queued frame.
-        BitmapSource? latest = null;
+        // Pointer-only notifications do not contain a newly presented desktop surface.
+        // In particular, the first such surface may be uninitialized (all black).
         for (var attempt = 0; attempt < 4; attempt++)
         {
-            var result = _duplication!.AcquireNextFrame(attempt == 0 ? 100u : 0u, out _, out var resource);
+            var result = _duplication!.AcquireNextFrame(attempt == 0 ? timeoutMilliseconds : (_lastBitmap == null ? Math.Min(timeoutMilliseconds, 16) : 0u), out var frameInfo, out var resource);
             if (result.Code == unchecked((int)0x887A0027)) break; // DXGI_ERROR_WAIT_TIMEOUT: unchanged desktop.
             result.CheckError();
             try
             {
                 using (resource)
-                using (var texture = resource.QueryInterface<ID3D11Texture2D>())
                 {
+                    if (frameInfo.LastPresentTime == 0)
+                    {
+                        continue;
+                    }
+                    using var texture = resource.QueryInterface<ID3D11Texture2D>();
                     var desc = texture.Description;
                     if (_staging == null || _staging.Description.Width != desc.Width || _staging.Description.Height != desc.Height)
                     {
@@ -74,22 +92,22 @@ public sealed class DxgiCapture : IDisposable
                         int width = (int)desc.Width, height = (int)desc.Height, stride = width * 4;
                         var pixels = new byte[stride * height];
                         for (var y = 0; y < height; y++) Marshal.Copy(map.DataPointer + y * (int)map.RowPitch, pixels, y * stride, stride);
-                        latest = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr32, null, pixels, stride);
+                        BitmapSource latest = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgr32, null, pixels, stride);
                         var angle = _rotation switch { ModeRotation.Rotate90 => 90, ModeRotation.Rotate180 => 180, ModeRotation.Rotate270 => 270, _ => 0 };
                         if (angle != 0) latest = new TransformedBitmap(latest, new RotateTransform(angle));
                         latest.Freeze();
+                        _lastBitmap = latest;
                     }
                     finally { _context.Unmap(_staging, 0); }
                 }
             }
             finally { _duplication.ReleaseFrame().CheckError(); }
         }
-        if (latest != null) _last = new CaptureFrame(at, monitorId, latest.PixelWidth, latest.PixelHeight, Images.EncodeJpeg(latest));
-        return _last is null ? null : _last with { CapturedAt = at };
+        return _lastBitmap;
     }
     public void Dispose()
     {
         _staging?.Dispose(); _duplication?.Dispose(); _context?.Dispose(); _device?.Dispose();
-        _staging = null; _duplication = null; _context = null; _device = null; _last = null; _monitorId = null;
+        _staging = null; _duplication = null; _context = null; _device = null; _last = null; _monitorId = null; _lastBitmap = _encodedBitmap = null;
     }
 }

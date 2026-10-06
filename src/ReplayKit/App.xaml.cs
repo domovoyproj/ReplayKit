@@ -14,13 +14,14 @@ public partial class App : Application
     private RegisteredWaitHandle? _activationWait;
     private RegisteredWaitHandle? _quitWait;
     private System.Windows.Forms.NotifyIcon? _tray;
-    private System.Drawing.Icon? _recordingIcon, _pausedIcon;
+    private System.Drawing.Icon? _recordingIcon, _pausedIcon, _videoIcon;
     private HotkeyService? _hotkeys;
     private CaptureService? _capture;
     private HistoryWindow? _history;
     private SettingsWindow? _settingsWindow;
     public Settings Settings { get; private set; } = new();
     private bool _exiting;
+    private bool _videoBusy;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -33,7 +34,7 @@ public partial class App : Application
             if (!first)
             {
                 _quit.Set();
-                try { if (_mutex.WaitOne(5000)) _mutex.ReleaseMutex(); }
+                try { if (_mutex.WaitOne(30000)) _mutex.ReleaseMutex(); }
                 catch (AbandonedMutexException) { _mutex.ReleaseMutex(); }
             }
             Shutdown(); return;
@@ -45,10 +46,12 @@ public partial class App : Application
         Settings = SettingsStore.Load(); ThemeService.Apply(Settings.Theme);
         _capture = new CaptureService(ResolveMonitor());
         _capture.StateChanged += OnCaptureState;
+        _capture.VideoSaved += OnVideoSaved;
         _hotkeys = new HotkeyService();
         _hotkeys.OpenHistory += OpenHistory; _hotkeys.ToggleRecording += _capture.Toggle;
         var bindingsOk = _hotkeys.Apply(Settings.HistoryHotkey, Settings.RecordingHotkey);
         CreateTray();
+        OnCaptureState();
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.DisplaySettingsChanged += OnDisplaysChanged;
         SystemEvents.UserPreferenceChanged += OnPreferencesChanged;
@@ -61,10 +64,11 @@ public partial class App : Application
         ?? System.Windows.Forms.Screen.PrimaryScreen!.DeviceName;
     private void CreateTray()
     {
-        _recordingIcon = CreateIcon(Color.FromArgb(113, 139, 255)); _pausedIcon = CreateIcon(Color.FromArgb(144, 148, 158));
+        _recordingIcon = CreateIcon(Color.FromArgb(113, 139, 255)); _pausedIcon = CreateIcon(Color.FromArgb(144, 148, 158)); _videoIcon = CreateIcon(Color.FromArgb(255, 92, 103));
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Открыть историю", null, (_, _) => OpenHistory());
-        menu.Items.Add("Запись / пауза", null, (_, _) => _capture!.Toggle());
+        menu.Items.Add("Буфер / пауза", null, (_, _) => _capture!.Toggle());
+        menu.Items.Add("Начать / остановить видео", null, (_, _) => ToggleVideo());
         menu.Items.Add("Настройки", null, (_, _) => OpenSettings());
         menu.Items.Add("Очистить буфер", null, (_, _) => { _history?.Close(); _capture!.Buffer.Clear(); });
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
@@ -91,7 +95,7 @@ public partial class App : Application
         if (_exiting || _capture == null) return;
         if (_history == null)
         {
-            _history = new HistoryWindow(_capture, Settings, SelectMonitor, OpenSettings);
+            _history = new HistoryWindow(_capture, Settings, SelectMonitor, OpenSettings, ToggleVideo);
             _history.Closed += (_, _) => _history = null;
         }
         if (_history.IsVisible) { if (_history.WindowState == WindowState.Minimized) _history.WindowState = WindowState.Normal; _history.Activate(); return; }
@@ -120,9 +124,32 @@ public partial class App : Application
     private void OnCaptureState() => Dispatcher.BeginInvoke(() =>
     {
         if (_tray == null || _capture == null || _exiting) return;
-        _tray.Icon = _capture.Recording && _capture.Error == null ? _recordingIcon : _pausedIcon;
-        _tray.Text = _capture.Error != null ? "ReplayKit · захват недоступен" : _capture.Recording ? "ReplayKit · запись" : "ReplayKit · пауза";
+        var icon = _capture.VideoRecording ? _videoIcon : _capture.Recording && _capture.Error == null ? _recordingIcon : _pausedIcon;
+        if (_tray.Icon != icon) _tray.Icon = icon;
+        var text = _capture.VideoRecording ? "ReplayKit · запись видео" : _capture.Error != null ? "ReplayKit · захват недоступен" : _capture.Recording ? "ReplayKit · буфер" : "ReplayKit · пауза";
+        if (_tray.Text != text) _tray.Text = text;
     });
+    private async void ToggleVideo()
+    {
+        if (_capture == null || _videoBusy) return;
+        _videoBusy = true;
+        try
+        {
+            if (_capture.VideoPending)
+            {
+                await _capture.StopVideoAsync();
+                if (_capture.VideoError != null) MessageBox.Show(_capture.VideoError, "Не удалось завершить видео", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                var dialog = new SaveFileDialog { Filter = "Видео MP4|*.mp4", DefaultExt = ".mp4", FileName = $"ReplayKit-{DateTime.Now:yyyy-MM-dd-HHmmss}.mp4" };
+                if (dialog.ShowDialog() == true) await _capture.StartVideoAsync(dialog.FileName);
+            }
+        }
+        catch (Exception e) { MessageBox.Show(e.Message, "Видеозапись", MessageBoxButton.OK, MessageBoxImage.Information); }
+        finally { _videoBusy = false; OnCaptureState(); }
+    }
+    private void OnVideoSaved(string path) => Dispatcher.BeginInvoke(() => { if (!_exiting) ShowNotification("Видео сохранено", Path.GetFileName(path)); });
     private void OnSessionSwitch(object sender, SessionSwitchEventArgs e) { if (e.Reason == SessionSwitchReason.SessionLock) _capture?.SetLocked(true); if (e.Reason == SessionSwitchReason.SessionUnlock) _capture?.SetLocked(false); }
     private void OnPowerChanged(object sender, PowerModeChangedEventArgs e) { if (e.Mode == PowerModes.Suspend) _capture?.SetLocked(true); if (e.Mode == PowerModes.Resume) _capture?.SetLocked(false); }
     private void OnDisplaysChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(() => { _capture?.SelectMonitor(ResolveMonitor()); _history?.Close(); });
@@ -138,7 +165,7 @@ public partial class App : Application
         SystemEvents.SessionSwitch -= OnSessionSwitch; SystemEvents.DisplaySettingsChanged -= OnDisplaysChanged;
         SystemEvents.UserPreferenceChanged -= OnPreferencesChanged; SystemEvents.PowerModeChanged -= OnPowerChanged;
         _activationWait?.Unregister(null); _quitWait?.Unregister(null); _capture?.Dispose(); _hotkeys?.Dispose();
-        _tray?.Dispose(); _recordingIcon?.Dispose(); _pausedIcon?.Dispose(); _activation?.Dispose(); _quit?.Dispose(); _mutex?.Dispose();
+        _tray?.Dispose(); _recordingIcon?.Dispose(); _pausedIcon?.Dispose(); _videoIcon?.Dispose(); _activation?.Dispose(); _quit?.Dispose(); _mutex?.Dispose();
         base.OnExit(e);
     }
 }

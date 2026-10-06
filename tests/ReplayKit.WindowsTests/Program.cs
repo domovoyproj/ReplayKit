@@ -36,6 +36,9 @@ internal static class Program
     }
     private static object? Call(object target, string method, params object[] args) => target.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)!.Invoke(target, args);
     private static T Field<T>(object target, string name) => (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;
+    [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr window);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+    [DllImport("gdi32.dll")] private static extern uint GetPixel(IntPtr dc, int x, int y);
     private static BitmapSource Sample()
     {
         var visual = new DrawingVisual();
@@ -82,6 +85,9 @@ internal static class Program
             Check("Two registered action hotkeys can be exchanged", first.Apply(b, a));
         }
         using var capture = new CaptureService("synthetic"); capture.SetLocked(true);
+        var lockedVideoRejected = false;
+        try { _ = capture.StartVideoAsync(Path.GetFullPath("artifacts/qa/locked-start.mp4")); } catch (InvalidOperationException) { lockedVideoRejected = true; }
+        Check("Locked session rejects video before file creation", lockedVideoRejected && !capture.VideoPending && !File.Exists("artifacts/qa/locked-start.mp4"));
         now = DateTimeOffset.Now;
         // Leave expiry margin for the first WPF window's JIT/layout on slow CI machines.
         // Exact one-second/60-second retention is covered independently by core tests.
@@ -125,14 +131,126 @@ internal static class Program
         var settings = new SettingsWindow(new Settings(), _ => null); settings.Show();
         Check("Settings use custom transparent chrome", settings.WindowStyle == WindowStyle.None && settings.AllowsTransparency);
         await Task.Delay(100); RenderUi(settings, "settings-dark"); settings.Close();
+        Directory.CreateDirectory("artifacts/qa");
+        var videoPath = Path.GetFullPath("artifacts/qa/video-smoke.mp4");
+        await Task.Run(() =>
+        {
+            using var writer = new Mp4Writer(videoPath, image.PixelWidth, image.PixelHeight);
+            var second = VideoChecks.Solid(1024, 640);
+            for (var i = 0; i < 60; i++) writer.Write(i < 30 ? image : second, i * TimeSpan.TicksPerSecond / Mp4Writer.FrameRate);
+            writer.Complete();
+            Check("Native H.264 MP4 contains all submitted frames", writer.FrameCount == 60);
+        });
+        var videoBytes = File.ReadAllBytes(videoPath);
+        var videoAtoms = System.Text.Encoding.Latin1.GetString(videoBytes);
+        Check("MP4 is finalized with movie metadata and H.264 payload", videoBytes.Length > 1000 && videoAtoms.Contains("ftyp") && videoAtoms.Contains("moov") && videoAtoms.Contains("avc1"));
+        var decodedVideo = await Task.Run(() => VideoChecks.Decode(videoPath));
+        Check("MP4 decodes 60 frames with correct dimensions and timestamps", decodedVideo.Frames == 60 && decodedVideo.Width == 1024 && decodedVideo.Height == 640 && Math.Abs(decodedVideo.LastTime / (double)TimeSpan.TicksPerSecond - 59d / 30) < 0.02);
+        Check("Video retains image colors and orientation", VideoChecks.Near(decodedVideo.FirstPixel, 92, 110, 211) && VideoChecks.Near(decodedVideo.LastPixel, 218, 52, 96));
+        await Task.Run(() =>
+        {
+            var existing = Path.GetFullPath("artifacts/qa/existing.mp4"); File.WriteAllText(existing, "existing video");
+            using (var empty = new Mp4Writer(existing, 1024, 640)) { }
+            Check("Cancelled empty video preserves existing destination", File.ReadAllText(existing) == "existing video" && !Directory.EnumerateFiles("artifacts/qa", "existing.mp4.replaykit-*").Any());
+            using var changed = new Mp4Writer(existing, 1024, 640);
+            var rejected = false;
+            try { changed.Write(VideoChecks.Solid(1026, 640), 0); } catch (InvalidOperationException) { rejected = true; }
+            Check("Resolution change is rejected before encoding", rejected && changed.FrameCount == 0 && File.ReadAllText(existing) == "existing video");
+        });
+        using (var recording = new CaptureService("test monitor", (_, _) => image))
+        {
+            recording.SetLocked(false);
+            await Task.Delay(2300);
+            var initialHistory = recording.Buffer.Snapshot(DateTimeOffset.Now);
+            Check("History does not skip every other tick after JPEG encoding", initialHistory.Length >= 3 && (initialHistory[1].CapturedAt - initialHistory[0].CapturedAt).TotalSeconds < 1.5);
+            var workerVideo = Path.GetFullPath("artifacts/qa/worker-video.mp4");
+            await recording.StartVideoAsync(workerVideo).WaitAsync(TimeSpan.FromSeconds(10));
+            var duplicateRejected = false;
+            try { _ = recording.StartVideoAsync(workerVideo); } catch (InvalidOperationException) { duplicateRejected = true; }
+            Check("Worker allows one active video", duplicateRejected && recording.VideoRecording);
+            var count = recording.Buffer.Snapshot(DateTimeOffset.Now).Length;
+            await Task.Delay(1200);
+            Check("Replay continues at one-second intervals during MP4", recording.Buffer.Snapshot(DateTimeOffset.Now).Length > count);
+            recording.Toggle();
+            await Task.Delay(200);
+            Check("Pausing screenshot buffer keeps video recording", !recording.Recording && recording.VideoRecording);
+            var saved = await recording.StopVideoAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Check("Worker stop finalizes selected MP4 and resets state", saved == workerVideo && !recording.VideoPending && !recording.VideoRecording);
+            var workerMovie = await Task.Run(() => VideoChecks.Decode(workerVideo));
+            Check("Worker MP4 decodes captured images and elapsed time", workerMovie.Frames > 2 && workerMovie.LastTime > TimeSpan.TicksPerSecond && VideoChecks.Near(workerMovie.FirstPixel, 92, 110, 211));
+            await recording.StartVideoAsync(Path.GetFullPath("artifacts/qa/worker-lock.mp4")).WaitAsync(TimeSpan.FromSeconds(10));
+            recording.SetLocked(true);
+            for (var t = 0; t < 100 && recording.VideoPending; t++) await Task.Delay(50);
+            Check("Lock finalizes active video and clears history", !recording.VideoPending && recording.Buffer.Snapshot(DateTimeOffset.Now).Length == 0);
+            recording.SetLocked(false);
+            await recording.StartVideoAsync(Path.GetFullPath("artifacts/qa/worker-monitor.mp4")).WaitAsync(TimeSpan.FromSeconds(10));
+            recording.SelectMonitor("new test monitor");
+            for (var t = 0; t < 100 && recording.VideoPending; t++) await Task.Delay(50);
+            Check("Monitor change finalizes active video", !recording.VideoPending && recording.MonitorId == "new test monitor");
+            await recording.StartVideoAsync(Path.GetFullPath("artifacts/qa/worker-exit.mp4")).WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Check("Graceful exit leaves playable MP4", (await Task.Run(() => VideoChecks.Decode(Path.GetFullPath("artifacts/qa/worker-exit.mp4")))).Frames > 0);
         if (args.Contains("--capture"))
         {
+            // A valid JPEG header and dimensions can still describe a completely black image.
+            // Keep a known, non-excluded window on screen and verify its pixels through DXGI.
+            var screen = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position);
+            using var witness = new System.Windows.Forms.Form { FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
+                StartPosition = System.Windows.Forms.FormStartPosition.Manual, Bounds = screen.Bounds, TopMost = true,
+                ShowInTaskbar = false, BackColor = System.Drawing.Color.FromArgb(218, 52, 96), Text = "ReplayKit capture test" };
+            witness.Show(); witness.Activate(); witness.Refresh();
+            await Task.Delay(600);
+            var checkPoint = witness.PointToScreen(new System.Drawing.Point(24, 24)); var dc = GetDC(IntPtr.Zero);
+            var displayed = GetPixel(dc, checkPoint.X, checkPoint.Y); ReleaseDC(IntPtr.Zero, dc);
+            Check("Known test window is visible (requires unlocked Windows)", (displayed & 255) == 218 && ((displayed >> 8) & 255) == 52 && ((displayed >> 16) & 255) == 96);
             using var dxgi = new DxgiCapture();
-            var screen = System.Windows.Forms.Screen.PrimaryScreen!;
             CaptureFrame? actual = null;
             for (var i = 0; i < 20 && actual == null; i++) { actual = dxgi.Capture(screen.DeviceName, DateTimeOffset.Now); await Task.Delay(100); }
             Check("Real DXGI capture at native monitor dimensions", actual != null && actual.Width == screen.Bounds.Width && actual.Height == screen.Bounds.Height && actual.EncodedImage.Length > 1000);
             Console.WriteLine($"DXGI: {actual!.Width}×{actual.Height}, {actual.EncodedImage.Length / 1024} KiB JPEG in RAM.");
+            var firstImage = new FormatConvertedBitmap(Images.Decode(actual), PixelFormats.Bgra32, null, 0);
+            var firstPixels = new byte[firstImage.PixelWidth * firstImage.PixelHeight * 4]; firstImage.CopyPixels(firstPixels, firstImage.PixelWidth * 4, 0);
+            Check("First captured desktop is not an uninitialized black surface", Enumerable.Range(0, firstPixels.Length / 4).Any(p => firstPixels[p * 4] > 10 || firstPixels[p * 4 + 1] > 10 || firstPixels[p * 4 + 2] > 10));
+            for (var i = 0; i < 8; i++)
+            {
+                var captured = dxgi.Capture(screen.DeviceName, DateTimeOffset.Now) ?? actual;
+                var point = witness.PointToScreen(new System.Drawing.Point(24, 24));
+                var pixel = new byte[4];
+                new FormatConvertedBitmap(Images.Decode(captured), PixelFormats.Bgra32, null, 0)
+                    .CopyPixels(new Int32Rect((int)point.X - screen.Bounds.Left, (int)point.Y - screen.Bounds.Top, 1, 1), pixel, 4, 0);
+                Console.WriteLine($"Capture {i}: witness RGB={pixel[2]},{pixel[1]},{pixel[0]}");
+                Check("Real desktop pixels match visible witness", Math.Abs(pixel[2] - 218) < 15 && Math.Abs(pixel[1] - 52) < 15 && Math.Abs(pixel[0] - 96) < 15);
+                await Task.Delay(150);
+            }
+            dxgi.Dispose();
+            using (var background = new CaptureService(screen.DeviceName))
+            {
+                await Task.Delay(2200);
+                var backgroundFrames = background.Buffer.Snapshot(DateTimeOffset.Now);
+                Check("Background capture service produces real frames", backgroundFrames.Length >= 2);
+                foreach (var captured in backgroundFrames)
+                {
+                    var point = witness.PointToScreen(new System.Drawing.Point(24, 24)); var pixel = new byte[4];
+                    new FormatConvertedBitmap(Images.Decode(captured), PixelFormats.Bgra32, null, 0)
+                        .CopyPixels(new Int32Rect((int)point.X - screen.Bounds.Left, (int)point.Y - screen.Bounds.Top, 1, 1), pixel, 4, 0);
+                    Console.WriteLine($"Worker witness RGB={pixel[2]},{pixel[1]},{pixel[0]}");
+                    Check("Worker capture preserves visible desktop pixels", Math.Abs(pixel[2] - 218) < 15 && Math.Abs(pixel[1] - 52) < 15 && Math.Abs(pixel[0] - 96) < 15);
+                }
+                var screenVideo = Path.GetFullPath("artifacts/qa/screen-video.mp4");
+                await background.StartVideoAsync(screenVideo).WaitAsync(TimeSpan.FromSeconds(15));
+                Check("Screen video starts while replay buffer continues", background.VideoRecording);
+                await Task.Delay(2200);
+                Check("Replay buffer keeps one-second history during video", background.Buffer.Snapshot(DateTimeOffset.Now).Length >= backgroundFrames.Length + 1);
+                var saved = await background.StopVideoAsync().WaitAsync(TimeSpan.FromSeconds(15));
+                Check("Video stop finalizes chosen MP4 and resets state", saved == screenVideo && File.Exists(screenVideo) && !background.VideoPending && !background.VideoRecording);
+                var recorded = await Task.Run(() => VideoChecks.Decode(screenVideo));
+                Check("Recorded screen MP4 decodes actual captured colors", recorded.Frames > 1 && recorded.Width == screen.Bounds.Width && recorded.Height == screen.Bounds.Height && VideoChecks.Near(recorded.FirstPixel, 218, 52, 96) && VideoChecks.Near(recorded.LastPixel, 218, 52, 96));
+                await background.StartVideoAsync(Path.GetFullPath("artifacts/qa/lock-video.mp4")).WaitAsync(TimeSpan.FromSeconds(15));
+                await Task.Delay(200); background.SetLocked(true);
+                for (var t = 0; t < 50 && background.VideoPending; t++) await Task.Delay(100);
+                Check("Session lock finalizes video and clears replay", !background.VideoPending && background.Buffer.Snapshot(DateTimeOffset.Now).Length == 0);
+            }
+            witness.Close();
         }
     }
 }
