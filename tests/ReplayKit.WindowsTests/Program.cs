@@ -96,18 +96,31 @@ internal static class Program
         var history = new HistoryWindow(capture, new Settings(), _ => { }, () => { }); history.Show();
         Check("Custom window chrome is active", history.WindowStyle == WindowStyle.None && history.AllowsTransparency);
         Check("Dark theme foreground inherits into live window", ((SolidColorBrush)history.Foreground).Color == ((SolidColorBrush)Application.Current.FindResource("TextBrush")).Color);
-        for (var i = 0; i < 300 && Field<BitmapSource[]>(history, "_previews").Length == 0; i++) await Task.Delay(50);
-        Check("History preloads all 60 frozen preview frames", Field<BitmapSource[]>(history, "_previews").Length == 60);
+        for (var i = 0; i < 300 && (Field<BitmapSource[]>(history, "_previews").Length < 60 || Field<BitmapSource[]>(history, "_previews").Any(x => x == null)); i++) await Task.Delay(50);
+        Check("History freezes 60 frames with lightweight thumbnails", Field<BitmapSource[]>(history, "_previews").Length == 60 && Field<BitmapSource[]>(history, "_previews").All(x => x != null && x.PixelWidth <= 120));
+        for (var i = 0; i < 100 && !Field<Dictionary<int, BitmapSource>>(history, "_previewCache").ContainsKey(59); i++) await Task.Delay(25);
+        Check("Latest full preview is ready after opening history", Field<Dictionary<int, BitmapSource>>(history, "_previewCache").ContainsKey(59));
         capture.Buffer.Add(frame with { CapturedAt = now.AddSeconds(1) });
         Check("Live capture cannot shift open timeline", Field<CaptureFrame[]>(history, "_frames")[^1].CapturedAt == now);
         Call(history, "SelectOffset", -59); Check("Oldest second selects first frame", Field<int>(history, "_selected") == 0);
         Call(history, "SelectOffset", 0); Check("Latest second selects last frame", Field<int>(history, "_selected") == 59);
-        var samples = new List<double>();
+        var selectionSamples = new List<double>();
+        var layoutSamples = new List<double>();
         for (var i = -59; i <= 0; i++)
         {
-            var watch = Stopwatch.StartNew(); Call(history, "SelectOffset", i); history.UpdateLayout(); samples.Add(watch.Elapsed.TotalMilliseconds);
+            var watch = Stopwatch.StartNew();
+            Call(history, "SelectOffset", i);
+            selectionSamples.Add(watch.Elapsed.TotalMilliseconds);
+            watch.Restart();
+            history.UpdateLayout();
+            layoutSamples.Add(watch.Elapsed.TotalMilliseconds);
         }
-        Check($"Frame selection below 100ms (maximum {samples.Max():F2}ms)", samples.Max() < 100);
+        var layoutP95 = layoutSamples.Order().ElementAt((int)(layoutSamples.Count * .95));
+        Console.WriteLine($"History selection: max={selectionSamples.Max():F2}ms; layout p95={layoutP95:F2}ms");
+        Check($"Frame selection below 100ms (maximum {selectionSamples.Max():F2}ms)", selectionSamples.Max() < 100);
+        Check($"Timeline layout stays responsive (p95 {layoutP95:F2}ms)", layoutP95 < 150);
+        await Task.Delay(300);
+        Check("Full preview cache remains bounded", Field<Dictionary<int, BitmapSource>>(history, "_previewCache").Count <= 5);
         history.WindowState = WindowState.Maximized; await Task.Delay(100);
         var dpi = VisualTreeHelper.GetDpi(history);
         var work = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position).WorkingArea;

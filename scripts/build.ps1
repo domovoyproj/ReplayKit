@@ -1,4 +1,4 @@
-param([string]$Version = '2.0.0', [string]$Dotnet = 'dotnet', [string]$Iscc = '')
+param([string]$Version = '2.1.0', [string]$Dotnet = 'dotnet', [string]$Iscc = '')
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $taskRoot
