@@ -124,7 +124,7 @@ public partial class HistoryWindow : Window
         {
             var quick = await Task.Run(() => Images.Decode(frame, 360));
             if (generation != _loadGeneration || request != _previewRequest) return;
-            _previews[index] = quick; Preview.Source = quick;
+            Preview.Source = quick;
         }
         var decoded = await Task.Run(() => Images.Decode(frame, 1600));
         if (generation != _loadGeneration) return;
