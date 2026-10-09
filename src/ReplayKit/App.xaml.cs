@@ -48,6 +48,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnUnhandled;
         Settings = SettingsStore.Load(); ThemeService.Apply(Settings.Theme);
         _capture = new CaptureService(ResolveMonitor()) { VideoOptions = Settings.Video };
+        _capture.ConfigureHistory(Settings.HistorySeconds, Settings.HistoryQuality);
         _capture.Replay.Configure(Settings);
         _capture.StateChanged += OnCaptureState;
         _capture.VideoSaved += OnVideoSaved;
@@ -72,6 +73,7 @@ public partial class App : Application
         _recordingIcon = CreateIcon(Color.FromArgb(113, 139, 255)); _pausedIcon = CreateIcon(Color.FromArgb(144, 148, 158)); _videoIcon = CreateIcon(Color.FromArgb(255, 92, 103));
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Открыть историю", null, (_, _) => OpenHistory());
+        menu.Items.Add("Скопировать последний кадр", null, async (_, _) => await CopyLatestFrame());
         menu.Items.Add("Буфер скриншотов / пауза", null, (_, _) => _capture!.Toggle());
         menu.Items.Add("Начать / остановить видео", null, (_, _) => ToggleVideo());
         menu.Items.Add("Пауза / продолжить видео", null, (_, _) => _capture!.ToggleVideoPause());
@@ -127,11 +129,11 @@ public partial class App : Application
         try { SettingsStore.SetAutoStart(proposed.AutoStart); SettingsStore.Save(proposed); }
         catch (Exception ex) { _hotkeys.Apply(Settings.HistoryHotkey, Settings.RecordingHotkey, Settings.VideoHotkey, Settings.ReplayHotkey); return ex.Message; }
         Settings.HistoryHotkey = proposed.HistoryHotkey; Settings.RecordingHotkey = proposed.RecordingHotkey;
-        Settings.AutoStart = proposed.AutoStart; Settings.Theme = proposed.Theme;
+        Settings.AutoStart = proposed.AutoStart; Settings.Theme = proposed.Theme; Settings.HistorySeconds = proposed.HistorySeconds; Settings.HistoryQuality = proposed.HistoryQuality;
         Settings.VideoHotkey = proposed.VideoHotkey; Settings.ReplayHotkey = proposed.ReplayHotkey;
         Settings.Video = proposed.Video; Settings.ReplayEnabled = proposed.ReplayEnabled; Settings.ReplaySeconds = proposed.ReplaySeconds;
         Settings.ReplayMemoryMb = proposed.ReplayMemoryMb; Settings.ReplayEconomy = proposed.ReplayEconomy;
-        _capture!.VideoOptions = Settings.Video; _capture.Replay.Configure(Settings);
+        _capture!.VideoOptions = Settings.Video; _capture.ConfigureHistory(Settings.HistorySeconds, Settings.HistoryQuality); _capture.Replay.Configure(Settings);
         ThemeService.Apply(Settings.Theme); return null;
     }
     private void OnCaptureState() => Dispatcher.BeginInvoke(() =>
@@ -181,10 +183,18 @@ public partial class App : Application
         _replayWindow = new ReplayWindow(_capture.Replay.Snapshot(), _capture.Replay.Fps);
         _replayWindow.Closed += (_, _) => _replayWindow = null; _replayWindow.Show();
     }
+    private async Task CopyLatestFrame()
+    {
+        if (_capture == null) return;
+        var frame = _capture.Buffer.Snapshot(DateTimeOffset.Now).LastOrDefault();
+        if (frame == null) { ShowNotification("История пуста", _capture.Status); return; }
+        try { await Images.CopyAsync(await Task.Run(() => Images.Decode(frame))); ShowNotification("Кадр скопирован", frame.CapturedAt.ToString("HH:mm:ss")); }
+        catch (Exception ex) { ShowNotification("Не удалось скопировать", ex.Message); }
+    }
     private void ShowDiagnostics()
     {
         if (_capture == null) return;
-        MessageBox.Show($"ReplayKit {typeof(App).Assembly.GetName().Version}\nWindows: {Environment.OSVersion.Version}\nСеанс заблокирован: {_capture.Locked}\nКадров в истории: {_capture.Buffer.Snapshot(DateTimeOffset.Now).Length}\nВидеобуфер: {_capture.Replay.Bytes / 1024 / 1024} МБ\nЗахват: {_capture.Status}\nВидео: {_capture.VideoError ?? "ошибок нет"}\nВидеобуфер: {_capture.Replay.Error ?? "ошибок нет"}", "Диагностика · без изображений");
+        MessageBox.Show($"ReplayKit {typeof(App).Assembly.GetName().Version}\nWindows: {Environment.OSVersion.Version}\nСеанс заблокирован: {_capture.Locked}\nКадров в истории: {_capture.Buffer.Count} / {_capture.HistorySeconds}\nJPEG истории: {_capture.HistoryQuality}%\nПолучено кадров: {_capture.CapturedFrames:N0}\nПропущено кадров истории: {_capture.HistoryDroppedFrames:N0}\nВидеобуфер: {_capture.Replay.Bytes / 1024 / 1024} МБ\nЗахват: {_capture.Status}\nВидео: {_capture.VideoError ?? "ошибок нет"}\nВидеобуфер: {_capture.Replay.Error ?? "ошибок нет"}", "Диагностика · без изображений");
     }
     private void OnVideoSaved(string path) => Dispatcher.BeginInvoke(() => { if (!_exiting) ShowNotification("Видео сохранено", Path.GetFileName(path)); });
     private void OnSessionSwitch(object sender, SessionSwitchEventArgs e) { if (e.Reason == SessionSwitchReason.SessionLock) _capture?.SetLocked(true); if (e.Reason == SessionSwitchReason.SessionUnlock) _capture?.SetLocked(false); }

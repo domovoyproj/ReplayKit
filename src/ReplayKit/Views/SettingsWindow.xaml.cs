@@ -12,6 +12,7 @@ public partial class SettingsWindow : Window
         _settings = settings; _apply = apply; _history = settings.HistoryHotkey; _recording = settings.RecordingHotkey; _video = settings.VideoHotkey; _replay = settings.ReplayHotkey;
         InitializeComponent(); HistoryKey.Text = _history.ToString(); RecordingKey.Text = _recording.ToString();
         AutoStart.IsChecked = settings.AutoStart;
+        Select(HistoryLength, settings.HistorySeconds); Select(HistoryQuality, settings.HistoryQuality);
         VideoKey.Text = _video.ToString(); ReplayKey.Text = _replay.ToString();
         Select(Fps, settings.Video.Fps); Select(VideoSize, settings.Video.MaxWidth); Select(Quality, settings.Video.Quality);
         SystemAudio.IsChecked = settings.Video.SystemAudio; Microphone.IsChecked = settings.Video.Microphone;
@@ -39,7 +40,7 @@ public partial class SettingsWindow : Window
     }
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        var error = _apply(new Settings { MonitorId = _settings.MonitorId, Theme = (string)((ComboBoxItem)Theme.SelectedItem).Tag, AutoStart = AutoStart.IsChecked == true, HistoryHotkey = _history, RecordingHotkey = _recording, VideoHotkey = _video, ReplayHotkey = _replay,
+        var error = _apply(new Settings { MonitorId = _settings.MonitorId, Theme = (string)((ComboBoxItem)Theme.SelectedItem).Tag, AutoStart = AutoStart.IsChecked == true, HistorySeconds = Value(HistoryLength), HistoryQuality = Value(HistoryQuality), HistoryHotkey = _history, RecordingHotkey = _recording, VideoHotkey = _video, ReplayHotkey = _replay,
             Video = new VideoOptions(Value(Fps), Value(VideoSize), Value(Quality), SystemAudio.IsChecked == true, Microphone.IsChecked == true, SystemVolume.Value, MicrophoneVolume.Value),
             ReplayEnabled = ReplayEnabled.IsChecked == true, ReplaySeconds = Value(ReplayLength), ReplayMemoryMb = Value(ReplayMemory), ReplayEconomy = Economy.IsChecked == true });
         if (error != null) Status.Text = error; else Close();

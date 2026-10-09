@@ -8,6 +8,8 @@ public sealed class Settings
     public string? MonitorId { get; set; }
     public string Theme { get; set; } = "System";
     public bool AutoStart { get; set; } = true;
+    public int HistorySeconds { get; set; } = 60;
+    public int HistoryQuality { get; set; } = 88;
     public HotkeySpec HistoryHotkey { get; set; } = HotkeySpec.History;
     public HotkeySpec RecordingHotkey { get; set; } = HotkeySpec.Recording;
     public HotkeySpec VideoHotkey { get; set; } = new(6, 0x56);
@@ -31,6 +33,8 @@ public static class SettingsStore
             if (settings.RecordingHotkey?.IsValid != true || settings.RecordingHotkey == settings.HistoryHotkey) settings.RecordingHotkey = HotkeySpec.Recording;
             if (settings.Theme is not ("Light" or "Dark" or "System")) settings.Theme = "System";
             settings.Video = (settings.Video ?? new()).Normalize();
+            settings.HistorySeconds = settings.HistorySeconds is 15 or 30 or 60 or 120 ? settings.HistorySeconds : 60;
+            settings.HistoryQuality = settings.HistoryQuality is 70 or 80 or 88 or 95 ? settings.HistoryQuality : 88;
             if (settings.VideoHotkey?.IsValid != true) settings.VideoHotkey = new(6, 0x56);
             if (settings.ReplayHotkey?.IsValid != true) settings.ReplayHotkey = new(6, 0x42);
             settings.ReplaySeconds = settings.ReplaySeconds is 15 or 30 or 60 ? settings.ReplaySeconds : 30;

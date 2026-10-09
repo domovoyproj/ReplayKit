@@ -19,9 +19,15 @@ public static class Images
         if (maxWidth > 0 && frame.Width > maxWidth) image.DecodePixelWidth = maxWidth;
         image.EndInit(); image.Freeze(); return image;
     }
-    public static byte[] EncodeJpeg(BitmapSource image)
+    public static byte[] EncodeJpeg(BitmapSource image, int quality = 88)
     {
-        var encoder = new JpegBitmapEncoder { QualityLevel = 88 };
+        var encoder = new JpegBitmapEncoder { QualityLevel = Math.Clamp(quality, 40, 100) };
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        using var stream = new MemoryStream(); encoder.Save(stream); return stream.ToArray();
+    }
+    public static byte[] EncodePng(BitmapSource image)
+    {
+        var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(image));
         using var stream = new MemoryStream(); encoder.Save(stream); return stream.ToArray();
     }

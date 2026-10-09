@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
 using ReplayKit.Services;
@@ -52,6 +53,13 @@ internal static class UpgradeChecks
             }
             var audio = DecodeAudio(audioPath);
             check("MP4 includes decodable non-silent AAC stereo audio", audio.Bytes > 150000 && audio.Peak > 5000);
+            var archivePath = Path.GetFullPath("artifacts/qa/history.zip");
+            var at = DateTimeOffset.Now;
+            HistoryArchive.Export(archivePath, new[] {
+                new ReplayKit.Core.CaptureFrame(at.AddSeconds(-1), "display", image.PixelWidth, image.PixelHeight, Images.EncodeJpeg(image)),
+                new ReplayKit.Core.CaptureFrame(at, "display", image.PixelWidth, image.PixelHeight, Images.EncodeJpeg(image)) });
+            using var archive = ZipFile.OpenRead(archivePath);
+            check("History export creates PNG frames and timestamp manifest", archive.Entries.Count == 3 && archive.GetEntry("history.json") != null && archive.Entries.Count(e => e.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) == 2);
         });
         using (var capture = new CaptureService("test", (_, _) => image))
         {
@@ -61,9 +69,12 @@ internal static class UpgradeChecks
             await Task.Delay(450); capture.ToggleVideoPause(); await Task.Delay(120);
             var before = capture.VideoDuration; await Task.Delay(800);
             check("Video pause freezes elapsed recording time", capture.VideoPaused && Math.Abs((capture.VideoDuration - before).TotalMilliseconds) < 60);
-            capture.ToggleVideoPause(); await Task.Delay(450); await capture.StopVideoAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            capture.ToggleVideoPause(); await Task.Delay(450);
+            var activeDuration = capture.VideoDuration;
+            await capture.StopVideoAsync().WaitAsync(TimeSpan.FromSeconds(15));
             var movie = await Task.Run(() => VideoChecks.Decode(destination));
-            check("Resumed MP4 excludes paused time", movie.LastTime < TimeSpan.FromSeconds(1.8).Ticks && movie.LastTime > TimeSpan.FromSeconds(.7).Ticks);
+            var durationError = Math.Abs(movie.LastTime - activeDuration.Ticks);
+            check("Resumed MP4 excludes paused time", movie.LastTime > before.Ticks && durationError < TimeSpan.FromMilliseconds(250).Ticks);
             capture.Replay.Configure(new Settings { ReplayEnabled = true, ReplaySeconds = 15, ReplayMemoryMb = 64 });
             for (var i = 0; i < 200 && capture.Replay.Snapshot().Length < 8 && capture.Replay.Error == null; i++) await Task.Delay(50);
             var snapshot = capture.Replay.Snapshot();

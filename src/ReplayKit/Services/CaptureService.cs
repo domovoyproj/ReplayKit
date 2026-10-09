@@ -22,7 +22,9 @@ public sealed class CaptureService : IDisposable
     private bool _recording = true, _locked, _stopVideo, _videoStarted;
     private int _generation;
     private long _videoTicks;
+    private long _capturedFrames, _historyDroppedFrames;
     private bool _videoPaused;
+    private int _historyQuality = 88;
     public VideoOptions VideoOptions { get; set; } = new();
     public ReplayBuffer Replay { get; } = new();
     private Int32Rect? _region;
@@ -46,8 +48,20 @@ public sealed class CaptureService : IDisposable
     public bool Recording { get { lock (_gate) return _recording && !_locked; } }
     public bool VideoRecording { get { lock (_gate) return _videoStarted; } }
     public bool VideoPending { get { lock (_gate) return _video != null; } }
+    public int HistorySeconds => Buffer.Capacity;
+    public int HistoryQuality { get { lock (_gate) return _historyQuality; } }
+    public long CapturedFrames => Interlocked.Read(ref _capturedFrames);
+    public long HistoryDroppedFrames => Interlocked.Read(ref _historyDroppedFrames);
     public TimeSpan VideoDuration => TimeSpan.FromTicks(Interlocked.Read(ref _videoTicks));
     public string MonitorId { get { lock (_gate) return _monitor; } }
+    public void ConfigureHistory(int seconds, int quality)
+    {
+        if (seconds is not (15 or 30 or 60 or 120)) seconds = 60;
+        if (quality is not (70 or 80 or 88 or 95)) quality = 88;
+        lock (_gate) _historyQuality = quality;
+        Buffer.Resize(seconds);
+        StateChanged?.Invoke();
+    }
     public CaptureService(string monitor) : this(monitor, null) { }
     internal CaptureService(string monitor, Func<string, uint, BitmapSource?>? captureFrame)
     {
@@ -142,6 +156,7 @@ public sealed class CaptureService : IDisposable
                     lock (_gate) { if (_generation != generation) continue; }
                     if (bitmap != null)
                     {
+                        Interlocked.Increment(ref _capturedFrames);
                         if (region is { } crop) bitmap = Images.Crop(bitmap, crop);
                         lock (_gate)
                         {
@@ -158,7 +173,9 @@ public sealed class CaptureService : IDisposable
                         }
                         if (historyActive && clock.ElapsedMilliseconds >= nextHistory)
                         {
-                            historyEncoder.Submit(bitmap, monitor, DateTimeOffset.Now, generation);
+                            int quality; lock (_gate) quality = _historyQuality;
+                            if (historyEncoder.Submit(bitmap, monitor, DateTimeOffset.Now, generation, quality))
+                                Interlocked.Increment(ref _historyDroppedFrames);
                             nextHistory = (clock.ElapsedMilliseconds / 1000 + 1) * 1000;
                         }
                         lock (_gate) Error = null;
